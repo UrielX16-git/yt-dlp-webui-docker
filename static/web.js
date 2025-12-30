@@ -13,7 +13,7 @@ document.getElementById('btnCheck').addEventListener('click', checkUrl);
 
 async function checkCookieStatus() {
     try {
-        const res = await fetch('/api/cookies-status');
+        const res = await fetch('/cookies/status');
         const data = await res.json();
         const btn = document.getElementById('btnUploadCookies');
         if (data.exists) {
@@ -36,7 +36,7 @@ async function uploadCookies(input) {
     formData.append('file', file);
 
     try {
-        const res = await fetch('/api/upload-cookies', {
+        const res = await fetch('/cookies/upload', {
             method: 'POST',
             body: formData
         });
@@ -99,7 +99,7 @@ async function checkUrl() {
     showLoader(true);
 
     try {
-        const res = await fetch('/api/info', {
+        const res = await fetch('/descarga/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
@@ -156,7 +156,7 @@ async function startDownload() {
     showStep('progress');
 
     try {
-        const res = await fetch('/api/download', {
+        const res = await fetch('/descarga/iniciar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -181,7 +181,7 @@ async function cancelDownload() {
     if (!currentTaskId) return;
     if (!confirm('¿Seguro que quieres cancelar?')) return;
 
-    await fetch('/api/cancel', {
+    await fetch('/descarga/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task_id: currentTaskId })
@@ -192,7 +192,7 @@ function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
 
     pollInterval = setInterval(async () => {
-        const res = await fetch(`/api/status/${currentTaskId}`);
+        const res = await fetch(`/descarga/status/${currentTaskId}`);
         const status = await res.json();
 
         const bar = document.getElementById('progressBar');
@@ -227,7 +227,7 @@ function startPolling() {
                 alert('Playlist descargada correctamente. Disponible en el historial.');
                 showStep('url');
             } else if (status.filename) {
-                window.location.href = `/downloads/${status.filename}`;
+                window.location.href = `/descarga/archivo/${status.filename}`;
                 showStep('url');
             } else {
                 alert('Descarga completada. Revisa el historial.');
@@ -244,7 +244,7 @@ function startPolling() {
 // --- History & Timer Logic ---
 async function loadHistory() {
     try {
-        const res = await fetch('/api/history');
+        const res = await fetch('/descarga/historial');
         const files = await res.json();
         renderHistory(files);
     } catch (e) {
@@ -261,8 +261,8 @@ function renderHistory(files) {
         item.className = 'history-item';
 
         let icon = 'fa-file-video';
-        let downloadBtn = `<a href="/downloads/${f.name}" class="btn-icon small" title="Descargar"><i class="fas fa-download"></i></a>`;
-        let viewBtn = `<a href="/view/${f.name}" target="_blank" class="btn-icon small" title="Ver"><i class="fas fa-eye"></i></a>`;
+        let downloadBtn = `<a href="/descarga/archivo/${f.name}" class="btn-icon small" title="Descargar"><i class="fas fa-download"></i></a>`;
+        let viewBtn = `<a href="/descarga/view/${f.name}" target="_blank" class="btn-icon small" title="Ver"><i class="fas fa-eye"></i></a>`;
 
         if (f.type === 'playlist') {
             icon = 'fa-folder';
@@ -324,7 +324,7 @@ setInterval(updateTimers, 1000);
 
 async function deleteFile(name) {
     if (!confirm(`¿Eliminar ${name}?`)) return;
-    await fetch(`/api/files/${name}`, { method: 'DELETE' });
+    await fetch(`/descarga/archivo/eliminar/${name}`, { method: 'DELETE' });
     loadHistory();
 }
 

@@ -1,29 +1,27 @@
 FROM python:3.11-slim
 
-# Instalar dependencias del sistema
-# ffmpeg es necesario para yt-dlp (fusionar audio/video)
-# git puede ser útil si yt-dlp necesita actualizarse desde git
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    git \
-    nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Instalar FFmpeg (requerido por yt-dlp para merge de audio/video)
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copiar requirements e instalar dependencias iniciales
+# Copiar requirements e instalar dependencias
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el resto de la aplicación
-COPY . .
+# Copiar código de la aplicación
+COPY app ./app
+COPY static ./static
+COPY templates ./templates
 
 # Crear directorio de descargas
-RUN mkdir -p downloads
+RUN mkdir -p /app/downloads
 
-# Exponer el puerto
-EXPOSE 5000
+# Puerto de la API
+EXPOSE 80
 
-# Script de entrada para actualizar yt-dlp antes de iniciar
-# Esto asegura que siempre se use la versión más reciente al reiniciar el contenedor
-CMD pip install --upgrade yt-dlp && gunicorn -w 4 -b 0.0.0.0:5000 --timeout 120 app:app
+# Comando por defecto: API
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
