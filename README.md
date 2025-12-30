@@ -118,7 +118,7 @@ environment:
 ### Puertos
 
 - Frontend: `5000` (modificar en docker-compose.yml)
-- API directa: `8000` (opcional, para debugging)
+- API directa: `8001` (opcional, para debugging)
 
 ### Límites de Recursos
 
