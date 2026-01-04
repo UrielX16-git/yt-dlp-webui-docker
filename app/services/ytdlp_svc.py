@@ -207,6 +207,8 @@ def download_media(
         'ignoreerrors': True,
         'no_warnings': True,
         'restrictfilenames': True,
+        'writethumbnail': True,  # Descargar miniatura
+        'add_metadata': True,  # Añadir metadatos al archivo
     }
     
     # Aplicar límite de items si es playlist y max_items > 0
@@ -256,6 +258,18 @@ def download_media(
             'preferredquality': '192',
         })
         
+        # Añadir postprocesador para incrustar miniatura en MP3
+        postprocessors.append({
+            'key': 'EmbedThumbnail',
+            'already_have_thumbnail': False,
+        })
+        
+        # Añadir postprocesador para metadatos
+        postprocessors.append({
+            'key': 'FFmpegMetadata',
+            'add_metadata': True,
+        })
+        
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': postprocessors,
@@ -271,6 +285,18 @@ def download_media(
             fmt = 'bestvideo+bestaudio/best'
         
         current_postprocessors = ydl_opts.get('postprocessors', [])
+        
+        # Añadir postprocesador para incrustar miniatura en MP4
+        current_postprocessors.append({
+            'key': 'EmbedThumbnail',
+            'already_have_thumbnail': False,
+        })
+        
+        # Añadir postprocesador para metadatos
+        current_postprocessors.append({
+            'key': 'FFmpegMetadata',
+            'add_metadata': True,
+        })
         
         ydl_opts.update({
             'format': fmt,
