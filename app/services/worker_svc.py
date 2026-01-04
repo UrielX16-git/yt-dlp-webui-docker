@@ -10,6 +10,7 @@ import os
 import shutil
 import time
 from .queue_svc import QueueService
+from .history_svc import HistoryService
 from . import ytdlp_svc
 
 logging.basicConfig(
@@ -158,6 +159,16 @@ class Worker:
             )
             
             logger.info(f"[WORKER] Job completado exitosamente: {job_id}")
+            
+            # Guardar en historial
+            try:
+                history_svc = HistoryService()
+                info = result.get('info', {})
+                # Asegurar formato
+                info['format_type'] = result.get('format_type', 'video')
+                history_svc.add_entry(info)
+            except Exception as hist_err:
+                logger.error(f"[WORKER] Error guardando historial: {hist_err}")
             
             # Si este job tiene un parent, actualizar progreso del padre
             parent_job_id = job_data['metadata'].get('parent_job_id')

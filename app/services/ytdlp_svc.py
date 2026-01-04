@@ -312,7 +312,9 @@ def download_media(
             'is_playlist': download_playlist and info.get('_type') == 'playlist',
             'filename': None,
             'playlist_folder': None,
-            'files': []
+            'files': [],
+            'info': info,  # Retornar metadata completa para historial
+            'format_type': format_type
         }
         
         if result['is_playlist']:

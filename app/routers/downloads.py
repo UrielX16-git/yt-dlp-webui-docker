@@ -12,6 +12,7 @@ import time
 import shutil
 
 from ..services.queue_svc import QueueService
+from ..services.history_svc import HistoryService
 from ..services import ytdlp_svc
 
 logger = logging.getLogger(__name__)
@@ -320,6 +321,82 @@ async def get_download_status(task_id: str):
         raise
     except Exception as e:
         logger.error(f"Error obteniendo estado: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/suggestions")
+async def get_suggestions(limit: int = 5):
+    """
+    Obtiene sugerencias de descarga basadas en el historial.
+    Filtra videos ya descargados para evitar repeticiones.
+    
+    Args:
+        limit: Número de sugerencias
+        
+    Returns:
+        Lista de videos sugeridos y la razón (query)
+    """
+    try:
+        history_svc = HistoryService()
+        query = history_svc.get_recommendation_query()
+        
+        if not query:
+            # Fallback si no hay historial suficiente
+            return {
+                "reason": "no_history",
+                "query": None,
+                "results": []
+            }
+            
+        logger.info(f"Buscando sugerencias para: {query}")
+        
+        search_results = ytdlp_svc.search_videos(query, limit * 2)
+        
+        # Filtrar videos ya descargados
+        from yt_dlp.utils import sanitize_filename
+        filtered_results = []
+        
+        for video in search_results['results']:
+            title = video.get('title', '')
+            if not title:
+                continue
+                
+            # Sanitizar título como lo hace yt-dlp
+            sanitized_title = sanitize_filename(title, restricted=True)
+            
+            # Buscar si existe archivo con ese título en downloads
+            file_exists = False
+            for root, dirs, files in os.walk(DOWNLOAD_FOLDER):
+                for filename in files:
+                    file_base = os.path.splitext(filename)[0]
+                    
+                    # Comparar título sanitizado con nombre de archivo
+                    if sanitized_title.lower() == file_base.lower():
+                        file_exists = True
+                        logger.debug(f"Video ya descargado (omitido): {title}")
+                        break
+                
+                if file_exists:
+                    break
+            
+            # Solo añadir si NO existe
+            if not file_exists:
+                filtered_results.append(video)
+                
+                # Detenerse si ya tenemos suficientes
+                if len(filtered_results) >= limit:
+                    break
+        
+        logger.info(f"Sugerencias filtradas: {len(filtered_results)} de {len(search_results['results'])} originales")
+        
+        return {
+            "reason": f"Based on your history: {query}",
+            "query": query,
+            "results": filtered_results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo sugerencias: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
