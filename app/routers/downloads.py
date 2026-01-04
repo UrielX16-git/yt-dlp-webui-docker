@@ -95,6 +95,33 @@ async def get_playlist_info(request: PlaylistInfoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/search-youtube")
+async def search_youtube(query: str, limit: int = 5):
+    """
+    Busca videos en YouTube y retorna sus URLs y metadata.
+    
+    Args:
+        query: Término de búsqueda
+        limit: Número máximo de resultados (1-20, default: 5)
+        
+    Returns:
+        Lista de videos encontrados con URLs, títulos, thumbnails, etc.
+    """
+    try:
+        if not query or not query.strip():
+            raise HTTPException(status_code=400, detail="El parámetro 'query' no puede estar vacío")
+        
+        logger.info(f"Búsqueda en YouTube: '{query}' (limit: {limit})")
+        results = ytdlp_svc.search_videos(query, limit)
+        return results
+    except ValueError as e:
+        logger.error(f"Error de validación: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error en búsqueda de YouTube: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @router.post("/iniciar")
 async def start_download(request: DownloadRequest):

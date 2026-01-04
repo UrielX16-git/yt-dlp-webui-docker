@@ -312,6 +312,66 @@ def download_media(
         return result
 
 
+def search_videos(query: str, max_results: int = 5) -> Dict[str, Any]:
+    """
+    Busca videos en YouTube usando yt-dlp.
+    
+    Args:
+        query: Término de búsqueda
+        max_results: Número máximo de resultados (default: 5)
+        
+    Returns:
+        Diccionario con lista de videos encontrados
+    """
+    if not query or not query.strip():
+        raise ValueError('El término de búsqueda no puede estar vacío')
+    
+    if max_results < 1 or max_results > 20:
+        raise ValueError('max_results debe estar entre 1 y 20')
+    
+    # Usar ytsearch{n}:{query} para buscar en YouTube
+    search_url = f'ytsearch{max_results}:{query}'
+    
+    ydl_opts = {
+        'extract_flat': True,  # Solo metadata, no descargar
+        'quiet': True,
+        'no_warnings': True
+    }
+    
+    # Usar cookies si existen
+    if os.path.exists(COOKIES_FILE):
+        ydl_opts['cookiefile'] = COOKIES_FILE
+        logger.info(f"Usando cookies para búsqueda: {query}")
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(search_url, download=False)
+        
+        entries = info.get('entries', [])
+        
+        results = []
+        for entry in entries:
+            if entry:  # Algunos entries pueden ser None
+                video_id = entry.get('id')
+                results.append({
+                    'title': entry.get('title', 'Sin título'),
+                    'url': entry.get('url') or f'https://www.youtube.com/watch?v={video_id}',
+                    'id': video_id,
+                    'duration': format_duration(entry.get('duration')),
+                    'thumbnail': entry.get('thumbnail') or entry.get('thumbnails', [{}])[0].get('url'),
+                    'uploader': entry.get('uploader') or entry.get('channel'),
+                    'view_count': entry.get('view_count'),
+                    'upload_date': entry.get('upload_date')
+                })
+        
+        logger.info(f"Búsqueda '{query}': {len(results)} resultados")
+        
+        return {
+            'query': query,
+            'results': results,
+            'count': len(results)
+        }
+
+
 def check_cookies_exist() -> bool:
     """Verifica si existe el archivo de cookies."""
     return os.path.exists(COOKIES_FILE)
