@@ -24,6 +24,35 @@ def format_duration(seconds):
     return f"{int(m):02d}:{int(s):02d}"
 
 
+def process_url(url: str) -> str:
+    """
+    Procesa y normaliza URLs antes de pasarlas a yt-dlp.
+    
+    Transformaciones soportadas:
+    - Twitch Dashboard → Twitch Public Video URL
+    
+    Args:
+        url: URL original
+        
+    Returns:
+        URL procesada/normalizada
+    """
+    import re
+    
+    # Twitch Dashboard to Public Video
+    # https://dashboard.twitch.tv/u/usuariocualquiera/content/video-producer/edit/2625520227
+    # → https://www.twitch.tv/videos/2625520227
+    twitch_dash_regex = r'dashboard\.twitch\.tv/u/[^/]+/content/video-producer/edit/(\d+)'
+    match = re.search(twitch_dash_regex, url)
+    if match:
+        video_id = match.group(1)
+        processed = f'https://www.twitch.tv/videos/{video_id}'
+        logger.info(f"URL procesada: Twitch Dashboard → {processed}")
+        return processed
+    
+    return url
+
+
 def get_video_info(url: str) -> Dict[str, Any]:
     """
     Obtiene información del video sin descargarlo.
@@ -34,6 +63,9 @@ def get_video_info(url: str) -> Dict[str, Any]:
     Returns:
         Diccionario con metadata del video
     """
+    # Procesar URL antes de usarla
+    url = process_url(url)
+    
     ydl_opts = {'noplaylist': True}
     
     # Usar cookies si es YouTube y existe el archivo
@@ -88,6 +120,9 @@ def download_media(
     Returns:
         Diccionario con información del resultado
     """
+    # Procesar URL antes de usarla
+    url = process_url(url)
+    
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
     
     output_template = f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s'

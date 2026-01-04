@@ -73,27 +73,10 @@ function toggleSubsOptions() {
     }
 }
 
-function processUrl(url) {
-    // Twitch Dashboard to Public Video
-    // https://dashboard.twitch.tv/u/usuariocualquiera/content/video-producer/edit/2625520227
-    const twitchDashRegex = /dashboard\.twitch\.tv\/u\/[^/]+\/content\/video-producer\/edit\/(\d+)/;
-    const match = url.match(twitchDashRegex);
-    if (match) {
-        return `https://www.twitch.tv/videos/${match[1]}`;
-    }
-    return url;
-}
 
 async function checkUrl() {
     let url = document.getElementById('urlInput').value.trim();
     if (!url) return;
-
-    // Process URL transformations
-    const processedUrl = processUrl(url);
-    if (processedUrl !== url) {
-        url = processedUrl;
-        document.getElementById('urlInput').value = url; // Update input to show change
-    }
 
     currentUrl = url;
     showLoader(true);
@@ -238,7 +221,7 @@ function startPolling() {
             alert('Estado: ' + status.status + (status.error ? '\n' + status.error : ''));
             resetStep();
         }
-    }, 500);
+    }, 5000); // Poll cada 5 segundos para no saturar el servidor
 }
 
 // --- History & Timer Logic ---
