@@ -27,6 +27,12 @@ class VideoInfoRequest(BaseModel):
     url: str
 
 
+class PlaylistInfoRequest(BaseModel):
+    url: str
+    max_items: int = -1  # -1 or 0 = todos, >0 = limit
+
+
+
 class DownloadRequest(BaseModel):
     url: str
     format: str = 'video'  # 'video' or 'audio'
@@ -34,6 +40,7 @@ class DownloadRequest(BaseModel):
     subtitles: bool = False
     subtitle_lang: Optional[str] = None
     download_playlist: bool = False
+    max_items: int = -1  # -1 or 0 = todos, >0 = limit
 
 
 class CancelRequest(BaseModel):
@@ -58,6 +65,30 @@ async def get_video_info(request: VideoInfoRequest):
     except Exception as e:
         logger.error(f"Error obteniendo info: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/playlist-info")
+async def get_playlist_info(request: PlaylistInfoRequest):
+    """
+    Obtiene información de una playlist sin descargarla.
+    
+    Args:
+        request: URL de la playlist y límite opcional de items
+        
+    Returns:
+        Metadata de la playlist y lista de videos con sus URLs individuales
+    """
+    try:
+        logger.info(f"Obteniendo info de playlist: {request.url} (max_items: {request.max_items})")
+        info = ytdlp_svc.get_playlist_info(request.url, request.max_items)
+        return info
+    except ValueError as e:
+        logger.error(f"Error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error obteniendo info de playlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/iniciar")
@@ -97,7 +128,8 @@ async def start_download(request: DownloadRequest):
                 'quality': request.quality,
                 'subtitles': request.subtitles,
                 'subtitle_lang': request.subtitle_lang,
-                'download_playlist': request.download_playlist
+                'download_playlist': request.download_playlist,
+                'max_items': request.max_items
             },
             priority=priority
         )

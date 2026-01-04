@@ -73,6 +73,16 @@ function toggleSubsOptions() {
     }
 }
 
+function togglePlaylistOptions() {
+    const checked = document.getElementById('playlistCheckbox').checked;
+    const opts = document.getElementById('playlistOptions');
+    if (checked) {
+        opts.classList.remove('hidden');
+    } else {
+        opts.classList.add('hidden');
+    }
+}
+
 
 async function checkUrl() {
     let url = document.getElementById('urlInput').value.trim();
@@ -127,6 +137,8 @@ async function startDownload() {
     const subtitles = document.getElementById('subsCheckbox').checked;
     const subtitleLang = document.getElementById('subsLangSelect').value;
     const downloadPlaylist = document.getElementById('playlistCheckbox').checked;
+    const maxItemsInput = document.getElementById('maxItemsInput').value;
+    const maxItems = maxItemsInput ? parseInt(maxItemsInput) : -1;
 
     // Reset UI before showing progress
     document.getElementById('progressStatus').textContent = 'Iniciando...';
@@ -148,7 +160,8 @@ async function startDownload() {
                 quality: quality,
                 subtitles: subtitles,
                 subtitle_lang: subtitleLang,
-                download_playlist: downloadPlaylist
+                download_playlist: downloadPlaylist,
+                max_items: maxItems
             })
         });
         const data = await res.json();

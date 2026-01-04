@@ -83,11 +83,16 @@
 
                     <div class="config-item full-width">
                         <label class="checkbox-container">
-                            <input type="checkbox" id="playlistCheckbox">
+                            <input type="checkbox" id="playlistCheckbox" onchange="togglePlaylistOptions()">
                             <span class="checkmark"></span>
                             <span class="label-text"><i class="fas fa-list"></i> Descargar toda la playlist (si
                                 aplica)</span>
                         </label>
+                    </div>
+
+                    <div class="config-item full-width hidden" id="playlistOptions">
+                        <label>Máximo de Items (0 o vacío = todos)</label>
+                        <input type="number" id="maxItemsInput" placeholder="Ej: 10" min="0" style="width: 100%; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.05); color: white;">
                     </div>
 
                     <div class="config-item full-width hidden" id="subsOptions">

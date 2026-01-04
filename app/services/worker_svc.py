@@ -109,6 +109,7 @@ class Worker:
                         subtitles=params.get('subtitles', False),
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
+                        max_items=params.get('max_items', -1),
                         progress_callback=progress_hook
                     )
                 
@@ -120,6 +121,7 @@ class Worker:
                         subtitles=params.get('subtitles', False),
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
+                        max_items=params.get('max_items', -1),
                         progress_callback=progress_hook
                     )
                 
@@ -137,12 +139,34 @@ class Worker:
             if result is None:
                 raise Exception("La descarga falló sin retornar resultado")
             
+            # Post-procesamiento: Comprimir playlists
+            output_file = result.get('filename')
+            if result.get('is_playlist', False):
+                playlist_folder = result.get('playlist_folder')
+                if playlist_folder:
+                    folder_path = os.path.join('/app/downloads', playlist_folder)
+                    if os.path.isdir(folder_path):
+                        logger.info(f"[WORKER] Comprimiendo playlist: {playlist_folder}")
+                        
+                        # Crear ZIP
+                        zip_path = shutil.make_archive(
+                            os.path.join('/app/downloads', playlist_folder),
+                            'zip',
+                            folder_path
+                        )
+                        
+                        zip_filename = os.path.basename(zip_path)
+                        logger.info(f"[WORKER] ZIP creado: {zip_filename}")
+                        
+                        # Actualizar output_file para apuntar al ZIP
+                        output_file = zip_filename
+            
             # Marcar como completado
             self.queue.update_job_status(
                 job_id,
                 "completed",
                 progress=100,
-                output_file=result.get('filename'),
+                output_file=output_file,
                 is_playlist=result.get('is_playlist', False)
             )
             

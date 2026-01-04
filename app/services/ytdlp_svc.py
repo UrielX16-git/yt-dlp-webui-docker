@@ -96,6 +96,68 @@ def get_video_info(url: str) -> Dict[str, Any]:
     }
 
 
+def get_playlist_info(url: str, max_items: int = -1) -> Dict[str, Any]:
+    """
+    Obtiene información de una playlist sin descargarla.
+    
+    Args:
+        url: URL de la playlist
+        max_items: Límite de items a retornar (-1 o 0 = todos, >0 = límite)
+        
+    Returns:
+        Diccionario con metadata de la playlist y lista de videos
+    """
+    # Procesar URL antes de usarla
+    url = process_url(url)
+    
+    ydl_opts = {
+        'extract_flat': True,  # Solo extraer metadata, no descargar
+        'quiet': True,
+        'no_warnings': True
+    }
+    
+    # Usar cookies si es YouTube y existe el archivo
+    is_youtube = 'youtube.com' in url or 'youtu.be' in url
+    if is_youtube and os.path.exists(COOKIES_FILE):
+        ydl_opts['cookiefile'] = COOKIES_FILE
+        logger.info(f"Usando cookies para info de playlist: {url}")
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        
+        # Verificar que sea una playlist
+        if info.get('_type') != 'playlist':
+            raise ValueError('La URL no corresponde a una playlist')
+        
+        # Extraer información de los videos
+        entries = info.get('entries', [])
+        
+        # Aplicar límite si se especifica
+        if max_items > 0:
+            entries = entries[:max_items]
+        
+        videos = []
+        for idx, entry in enumerate(entries, 1):
+            if entry:  # Algunos entries pueden ser None si hay errores
+                videos.append({
+                    'index': idx,
+                    'url': entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                    'title': entry.get('title', 'Sin título'),
+                    'duration': format_duration(entry.get('duration')),
+                    'thumbnail': entry.get('thumbnail'),
+                    'uploader': entry.get('uploader') or entry.get('channel'),
+                })
+        
+        return {
+            'playlist_title': info.get('title'),
+            'playlist_uploader': info.get('uploader') or info.get('channel'),
+            'total_videos': len(info.get('entries', [])),
+            'returned_videos': len(videos),
+            'videos': videos
+        }
+
+
+
 def download_media(
     url: str,
     format_type: str,  # 'video' or 'audio'
@@ -103,6 +165,7 @@ def download_media(
     subtitles: bool = False,
     subtitle_lang: Optional[str] = None,
     download_playlist: bool = False,
+    max_items: int = -1,
     progress_callback: Optional[Callable] = None
 ) -> Dict[str, Any]:
     """
@@ -125,7 +188,13 @@ def download_media(
     
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
     
-    output_template = f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s'
+    # Configurar template de salida según si es playlist o no
+    if download_playlist:
+        # Para playlists: Crear subcarpeta
+        output_template = f'{DOWNLOAD_FOLDER}/%(playlist_title)s/%(title)s.%(ext)s'
+    else:
+        # Para videos individuales: descarga directa
+        output_template = f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s'
     
     ydl_opts = {
         'outtmpl': output_template,
@@ -134,6 +203,10 @@ def download_media(
         'no_warnings': True,
         'restrictfilenames': True,
     }
+    
+    # Aplicar límite de items si es playlist y max_items > 0
+    if download_playlist and max_items > 0:
+        ydl_opts['playlistend'] = max_items
     
     # Progress hook
     if progress_callback:
@@ -207,11 +280,17 @@ def download_media(
         result = {
             'is_playlist': download_playlist and info.get('_type') == 'playlist',
             'filename': None,
+            'playlist_folder': None,
             'files': []
         }
         
         if result['is_playlist']:
-            # Para playlists, no retornamos un solo archivo
+            # Para playlists, retornar el nombre de la carpeta
+            playlist_title = info.get('playlist_title') or info.get('title', 'playlist')
+            # Sanitizar el nombre (yt-dlp ya lo hace con restrictfilenames)
+            from yt_dlp.utils import sanitize_filename
+            sanitized_playlist_name = sanitize_filename(playlist_title, restricted=True)
+            result['playlist_folder'] = sanitized_playlist_name
             result['filename'] = None
         else:
             # Para videos individuales
