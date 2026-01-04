@@ -41,7 +41,7 @@ def process_url(url: str) -> str:
     
     # Twitch Dashboard to Public Video
     # https://dashboard.twitch.tv/u/usuariocualquiera/content/video-producer/edit/2625520227
-    # → https://www.twitch.tv/videos/2625520227
+    # https://www.twitch.tv/videos/2625520227
     twitch_dash_regex = r'dashboard\.twitch\.tv/u/[^/]+/content/video-producer/edit/(\d+)'
     match = re.search(twitch_dash_regex, url)
     if match:

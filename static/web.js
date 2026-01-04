@@ -216,12 +216,12 @@ function startPolling() {
                 alert('Descarga completada. Revisa el historial.');
                 showStep('url');
             }
-        } else if (status.status === 'error' || status.status === 'cancelled') {
+        } else if (status.status === 'error' || status.status === 'cancelled' || status.status === 'failed') {
             clearInterval(pollInterval);
             alert('Estado: ' + status.status + (status.error ? '\n' + status.error : ''));
             resetStep();
         }
-    }, 5000); // Poll cada 5 segundos para no saturar el servidor
+    }, 5000);
 }
 
 // --- History & Timer Logic ---

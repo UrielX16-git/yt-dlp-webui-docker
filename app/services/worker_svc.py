@@ -99,30 +99,43 @@ class Worker:
                     self.queue.update_job_status(job_id, "processing", progress=100)
             
             # Ejecutar descarga
-            if job_type == "download_video":
-                result = ytdlp_svc.download_media(
-                    url=url,
-                    format_type='video',
-                    quality=params.get('quality', 'best'),
-                    subtitles=params.get('subtitles', False),
-                    subtitle_lang=params.get('subtitle_lang'),
-                    download_playlist=params.get('download_playlist', False),
-                    progress_callback=progress_hook
-                )
+            result = None
+            try:
+                if job_type == "download_video":
+                    result = ytdlp_svc.download_media(
+                        url=url,
+                        format_type='video',
+                        quality=params.get('quality', 'best'),
+                        subtitles=params.get('subtitles', False),
+                        subtitle_lang=params.get('subtitle_lang'),
+                        download_playlist=params.get('download_playlist', False),
+                        progress_callback=progress_hook
+                    )
+                
+                elif job_type == "download_audio":
+                    result = ytdlp_svc.download_media(
+                        url=url,
+                        format_type='audio',
+                        quality=params.get('quality', 'best'),
+                        subtitles=params.get('subtitles', False),
+                        subtitle_lang=params.get('subtitle_lang'),
+                        download_playlist=params.get('download_playlist', False),
+                        progress_callback=progress_hook
+                    )
+                
+                else:
+                    raise ValueError(f"Tipo de job no soportado: {job_type}")
             
-            elif job_type == "download_audio":
-                result = ytdlp_svc.download_media(
-                    url=url,
-                    format_type='audio',
-                    quality=params.get('quality', 'best'),
-                    subtitles=params.get('subtitles', False),
-                    subtitle_lang=params.get('subtitle_lang'),
-                    download_playlist=params.get('download_playlist', False),
-                    progress_callback=progress_hook
-                )
+            except Exception as download_error:
+                # Si es cancelación, re-lanzar para que sea manejada abajo
+                if "DownloadCancelled" in str(download_error):
+                    raise
+                # Si yt-dlp falla, también re-lanzar
+                raise
             
-            else:
-                raise ValueError(f"Tipo de job no soportado: {job_type}")
+            # Validar que result no sea None (solo si no hubo excepción)
+            if result is None:
+                raise Exception("La descarga falló sin retornar resultado")
             
             # Marcar como completado
             self.queue.update_job_status(

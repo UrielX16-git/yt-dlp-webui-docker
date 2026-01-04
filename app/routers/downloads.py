@@ -72,6 +72,9 @@ async def start_download(request: DownloadRequest):
         Task ID para consultar el estado
     """
     try:
+        # Procesar URL antes de encolar
+        processed_url = ytdlp_svc.process_url(request.url)
+        
         queue = QueueService()
         
         # Determinar tipo de job
@@ -89,7 +92,7 @@ async def start_download(request: DownloadRequest):
         # Crear job
         job_id = queue.create_job(
             job_type=job_type,
-            url=request.url,
+            url=processed_url,
             parameters={
                 'quality': request.quality,
                 'subtitles': request.subtitles,
@@ -298,13 +301,13 @@ async def delete_file(filename: str):
 @router.get("/view/{filename:path}")
 async def view_file(filename: str):
     """
-    Visualiza un archivo (para videos).
+    Visualiza un archivo (para videos/audio).
     
     Args:
         filename: Nombre del archivo
         
     Returns:
-        Archivo para visualización
+        Archivo para visualización en navegador
     """
     try:
         path = os.path.join(DOWNLOAD_FOLDER, filename)
@@ -315,10 +318,23 @@ async def view_file(filename: str):
         # Touch para actualizar timestamp
         os.utime(path, None)
         
+        # Determinar media_type según extensión
+        ext = os.path.splitext(filename)[1].lower()
+        media_type_map = {
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.mkv': 'video/x-matroska',
+            '.mp3': 'audio/mpeg',
+            '.m4a': 'audio/mp4',
+            '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg'
+        }
+        media_type = media_type_map.get(ext, 'application/octet-stream')
+        
+        # NO incluir filename para que se abra inline en el navegador
         return FileResponse(
             path=path,
-            filename=os.path.basename(path),
-            media_type='video/mp4'  # Asumimos MP4
+            media_type=media_type
         )
         
     except HTTPException:
