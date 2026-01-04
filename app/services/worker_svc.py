@@ -110,6 +110,7 @@ class Worker:
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
                         max_items=params.get('max_items', -1),
+                        custom_output_dir=params.get('custom_output_dir'),
                         progress_callback=progress_hook
                     )
                 
@@ -122,8 +123,14 @@ class Worker:
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
                         max_items=params.get('max_items', -1),
+                        custom_output_dir=params.get('custom_output_dir'),
                         progress_callback=progress_hook
                     )
+                
+                elif job_type == "playlist_batch":
+                    # Los playlist_batch no se procesan, solo rastrean
+                    logger.info(f"[WORKER] playlist_batch job {job_id} - skipping (solo tracker)")
+                    return
                 
                 else:
                     raise ValueError(f"Tipo de job no soportado: {job_type}")
@@ -139,29 +146,9 @@ class Worker:
             if result is None:
                 raise Exception("La descarga falló sin retornar resultado")
             
-            # Post-procesamiento: Comprimir playlists
+            # Marcar hijo como completado
             output_file = result.get('filename')
-            if result.get('is_playlist', False):
-                playlist_folder = result.get('playlist_folder')
-                if playlist_folder:
-                    folder_path = os.path.join('/app/downloads', playlist_folder)
-                    if os.path.isdir(folder_path):
-                        logger.info(f"[WORKER] Comprimiendo playlist: {playlist_folder}")
-                        
-                        # Crear ZIP
-                        zip_path = shutil.make_archive(
-                            os.path.join('/app/downloads', playlist_folder),
-                            'zip',
-                            folder_path
-                        )
-                        
-                        zip_filename = os.path.basename(zip_path)
-                        logger.info(f"[WORKER] ZIP creado: {zip_filename}")
-                        
-                        # Actualizar output_file para apuntar al ZIP
-                        output_file = zip_filename
             
-            # Marcar como completado
             self.queue.update_job_status(
                 job_id,
                 "completed",
@@ -171,6 +158,19 @@ class Worker:
             )
             
             logger.info(f"[WORKER] Job completado exitosamente: {job_id}")
+            
+            # Si este job tiene un parent, actualizar progreso del padre
+            parent_job_id = job_data['metadata'].get('parent_job_id')
+            if parent_job_id:
+                logger.info(f"[WORKER] Actualizando progreso del padre: {parent_job_id}")
+                self.queue.check_update_parent_progress(parent_job_id)
+                
+                # Verificar si el padre está listo para ZIP
+                parent_data = self.queue.get_job_status(parent_job_id)
+                if parent_data and parent_data['status'] == 'ready_for_zip':
+                    logger.info(f"[WORKER] Padre {parent_job_id} listo, creando ZIP...")
+                    self._create_playlist_zip(parent_job_id)
+            
             logger.info("=" * 80)
             
         except Exception as e:
@@ -191,6 +191,66 @@ class Worker:
                     "failed",
                     error=str(e)
                 )
+    
+    def _create_playlist_zip(self, parent_job_id: str):
+        """
+        Crea un archivo ZIP para una playlist completada.
+        
+        Args:
+            parent_job_id: ID del trabajo padre de la playlist
+        """
+        try:
+            parent_data = self.queue.get_job_status(parent_job_id)
+            if not parent_data:
+                logger.error(f"[WORKER] Parent job no encontrado: {parent_job_id}")
+                return
+            
+            playlist_folder = parent_data['metadata']['parameters'].get('playlist_folder')
+            if not playlist_folder:
+                logger.error(f"[WORKER] No se encontró playlist_folder en parent {parent_job_id}")
+                return
+            
+            folder_path = os.path.join('/app/downloads', playlist_folder)
+            
+            if not os.path.isdir(folder_path):
+                logger.error(f"[WORKER] Carpeta no existe: {folder_path}")
+                self.queue.update_job_status(
+                    parent_job_id,
+                    "failed",
+                    error="Carpeta de playlist no encontrada"
+                )
+                return
+            
+            logger.info(f"[WORKER] Comprimiendo playlist: {playlist_folder}")
+            
+            # Crear ZIP
+            zip_path = shutil.make_archive(
+                os.path.join('/app/downloads', playlist_folder),
+                'zip',
+                folder_path
+            )
+            
+            zip_filename = os.path.basename(zip_path)
+            logger.info(f"[WORKER] ZIP creado: {zip_filename}")
+            
+            # Marcar parent como completado
+            self.queue.update_job_status(
+                parent_job_id,
+                "completed",
+                progress=100,
+                output_file=zip_filename
+            )
+            
+            logger.info(f"[WORKER] Playlist {parent_job_id} completada con ZIP")
+            
+        except Exception as e:
+            logger.error(f"[WORKER] Error creando ZIP para {parent_job_id}: {str(e)}")
+            self.queue.update_job_status(
+                parent_job_id,
+                "failed",
+                error=f"Error creando ZIP: {str(e)}"
+            )
+    
     
     async def run(self):
         """Loop principal del worker."""
@@ -239,32 +299,45 @@ async def cleanup_task():
             files_deleted = 0
             space_freed = 0
             
+            error_count = 0
+            errors = []
+            
             for f in os.listdir(DOWNLOAD_FOLDER):
                 path = os.path.join(DOWNLOAD_FOLDER, f)
                 if os.path.exists(path):
-                    stat = os.stat(path)
-                    age = now - stat.st_mtime
-                    
-                    if age > EXPIRATION_TIME:
-                        try:
-                            if os.path.isfile(path):
-                                size = os.path.getsize(path)
-                                os.remove(path)
-                                space_freed += size
-                                files_deleted += 1
-                            elif os.path.isdir(path):
-                                # Calcular tamaño de carpeta
-                                for dirpath, dirnames, filenames in os.walk(path):
-                                    for fname in filenames:
-                                        fp = os.path.join(dirpath, fname)
-                                        space_freed += os.path.getsize(fp)
+                    try:
+                        stat = os.stat(path)
+                        age = now - stat.st_mtime
+                        
+                        if age > EXPIRATION_TIME:
+                            try:
+                                if os.path.isfile(path):
+                                    size = os.path.getsize(path)
+                                    os.remove(path)
+                                    space_freed += size
+                                    files_deleted += 1
+                                elif os.path.isdir(path):
+                                    # Calcular tamaño de carpeta
+                                    for dirpath, dirnames, filenames in os.walk(path):
+                                        for fname in filenames:
+                                            fp = os.path.join(dirpath, fname)
+                                            space_freed += os.path.getsize(fp)
+                                    
+                                    shutil.rmtree(path)
+                                    files_deleted += 1
                                 
-                                shutil.rmtree(path)
-                                files_deleted += 1
-                            
-                            logger.info(f"[CLEANUP] Elemento expirado eliminado: {f}")
-                        except Exception as e:
-                            logger.error(f"[CLEANUP] Error eliminando {f}: {e}")
+                                logger.info(f"[CLEANUP] Elemento expirado eliminado: {f}")
+                            except Exception as e:
+                                error_count += 1
+                                errors.append(f"{f}: {str(e)}")
+                    except Exception as stat_err:
+                         # Error obteniendo stats (file not found race condition)
+                         continue
+
+            if error_count > 0:
+                logger.warning(f"[CLEANUP] Se encontraron {error_count} errores al eliminar archivos.")
+                for err in errors[:3]:
+                    logger.warning(f"[CLEANUP] Detalle error: {err}")
             
             logger.info(
                 f"[CLEANUP] Limpieza completada - "

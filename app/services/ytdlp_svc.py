@@ -166,6 +166,7 @@ def download_media(
     subtitle_lang: Optional[str] = None,
     download_playlist: bool = False,
     max_items: int = -1,
+    custom_output_dir: Optional[str] = None,
     progress_callback: Optional[Callable] = None
 ) -> Dict[str, Any]:
     """
@@ -188,8 +189,12 @@ def download_media(
     
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
     
-    # Configurar template de salida según si es playlist o no
-    if download_playlist:
+    # Configurar template de salida
+    if custom_output_dir:
+        # Usar directorio personalizado (para videos individuales de playlist)
+        os.makedirs(custom_output_dir, exist_ok=True)
+        output_template = f'{custom_output_dir}/%(title)s.%(ext)s'
+    elif download_playlist:
         # Para playlists: Crear subcarpeta
         output_template = f'{DOWNLOAD_FOLDER}/%(playlist_title)s/%(title)s.%(ext)s'
     else:

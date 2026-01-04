@@ -43,10 +43,11 @@ class QueueService:
     
     def create_job(
         self, 
-        job_type: str,  # 'download_video', 'download_audio', 'get_info'
+        job_type: str,  # 'download_video', 'download_audio', 'playlist_batch'
         url: str,
         parameters: Dict[str, Any],
-        priority: int = PRIORITY_NORMAL
+        priority: int = PRIORITY_NORMAL,
+        parent_job_id: Optional[str] = None
     ) -> str:
         """
         Crea un nuevo job y lo agrega a la cola con prioridad.
@@ -81,7 +82,8 @@ class QueueService:
             "playlist_index": None,
             "playlist_count": None,
             "metadata": {
-                "parameters": parameters
+                "parameters": parameters,
+                "parent_job_id": parent_job_id
             }
         }
         
@@ -95,9 +97,13 @@ class QueueService:
         score = priority * 1000000 + datetime.utcnow().timestamp()
         self.redis.zadd("job_queue", {job_id: score})
         
+        # Si tiene parent, agregar a la lista de hijos del padre
+        if parent_job_id:
+            self.redis.sadd(f"parent:{parent_job_id}:children", job_id)
+        
         logger.info(
             f"[QUEUE] Job creado: {job_id} - {job_type} "
-            f"(prioridad: {priority}, url: {url[:50]}...)"
+            f"(prioridad: {priority}, parent: {parent_job_id}, url: {url[:50]}...)"
         )
         return job_id
     
@@ -287,3 +293,80 @@ class QueueService:
                 jobs.append(job_data)
         
         return jobs
+    
+    def get_child_jobs(self, parent_job_id: str) -> List[Dict[str, Any]]:
+        """
+        Obtiene todos los trabajos hijos de un trabajo padre.
+        
+        Args:
+            parent_job_id: ID del trabajo padre
+            
+        Returns:
+            Lista de datos de trabajos hijos
+        """
+        child_ids = self.redis.smembers(f"parent:{parent_job_id}:children")
+        
+        children = []
+        for child_id in child_ids:
+            child_data = self.get_job_status(child_id)
+            if child_data:
+                children.append(child_data)
+        
+        return children
+    
+    def check_update_parent_progress(self, parent_job_id: str):
+        """
+        Verifica y actualiza el progreso del trabajo padre basado en sus hijos.
+        Si todos los hijos están completos, marca al padre como completo.
+        
+        Args:
+            parent_job_id: ID del trabajo padre
+        """
+        parent_data = self.get_job_status(parent_job_id)
+        if not parent_data:
+            logger.warning(f"[QUEUE] Parent job no encontrado: {parent_job_id}")
+            return
+        
+        children = self.get_child_jobs(parent_job_id)
+        
+        if not children:
+            logger.warning(f"[QUEUE] Parent {parent_job_id} no tiene hijos")
+            return
+        
+        # Calcular estadísticas
+        total = len(children)
+        completed = sum(1 for c in children if c['status'] == 'completed')
+        failed = sum(1 for c in children if c['status'] == 'failed')
+        cancelled = sum(1 for c in children if c['status'] == 'cancelled')
+        
+        # Calcular progreso promedio
+        total_progress = sum(c.get('progress', 0) for c in children)
+        average_progress = total_progress / total if total > 0 else 0
+        
+        # Actualizar padre
+        parent_data['progress'] = average_progress
+        parent_data['metadata']['completed_count'] = completed
+        parent_data['metadata']['failed_count'] = failed
+        parent_data['metadata']['cancelled_count'] = cancelled
+        parent_data['metadata']['total_count'] = total
+        
+        # Si todos terminaron (exitosos o no)
+        if completed + failed + cancelled == total:
+            if failed == 0 and cancelled == 0:
+                # Todos exitosos
+                parent_data['status'] = 'ready_for_zip'
+                parent_data['progress'] = 100
+                logger.info(f"[QUEUE] Parent {parent_job_id} listo para ZIP")
+            else:
+                # Algunos fallaron
+                parent_data['status'] = 'completed_with_errors'
+                parent_data['error'] = f"{failed} fallidos, {cancelled} cancelados"
+                logger.warning(f"[QUEUE] Parent {parent_job_id} completado con errores")
+        else:
+            parent_data['status'] = 'processing'
+        
+        self.redis.set(f"job:{parent_job_id}", json.dumps(parent_data))
+        logger.info(
+            f"[QUEUE] Parent {parent_job_id} actualizado: {completed}/{total} completados, "
+            f"progreso: {average_progress:.1f}%"
+        )

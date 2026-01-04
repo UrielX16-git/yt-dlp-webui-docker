@@ -188,54 +188,153 @@ function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
 
     pollInterval = setInterval(async () => {
-        const res = await fetch(`/descarga/status/${currentTaskId}`);
-        const status = await res.json();
+        try {
+            const res = await fetch(`/descarga/status/${currentTaskId}`);
+            if (res.status === 404) {
+                // Si da 404, puede que haya terminado y expirado muy rápido o se canceló
+                // Intentamos recargar historial y parar polling
+                clearInterval(pollInterval);
+                loadHistory();
+                return;
+            }
 
-        const bar = document.getElementById('progressBar');
-        const txt = document.getElementById('progressStatus');
-        const pct = document.getElementById('progressPercent');
+            const status = await res.json();
 
-        bar.style.width = status.progress + '%';
-        pct.textContent = status.progress.toFixed(1) + '%';
+            const bar = document.getElementById('progressBar');
+            const txt = document.getElementById('progressStatus');
+            const pct = document.getElementById('progressPercent');
 
-        document.getElementById('speed').textContent = status.speed || '--';
-        document.getElementById('eta').textContent = status.eta || '--';
+            // Actualizar barra principal
+            bar.style.width = status.progress + '%';
+            pct.textContent = status.progress.toFixed(1) + '%';
 
-        if (status.status === 'downloading') {
-            if (status.playlist_index && status.playlist_count) {
-                txt.textContent = `Descargando video ${status.playlist_index} de ${status.playlist_count}...`;
+            // Actualizar detalles
+            if (status.type === 'playlist') {
+                // Lógica para Playlists Granulares
+                const container = document.getElementById('playlistContainer') || createPlaylistContainer();
+
+                // Mostrar resumen
+                txt.textContent = `Descargando Playlist: ${status.completed_count}/${status.total_count} videos completados`;
+
+                // Renderizar lista de items
+                renderPlaylistItems(status.items, container);
+
+                // Ocultar info de velocidad individual en el header global para no confundir
+                document.getElementById('speed').textContent = '';
+                document.getElementById('eta').textContent = '';
+
             } else {
-                txt.textContent = 'Descargando...';
-            }
-        } else if (status.status === 'processing') {
-            // Don't show "Processing..." for playlists if we have index info, to avoid flickering
-            if (!status.is_playlist) {
-                txt.textContent = 'Procesando...';
-                bar.style.backgroundColor = '#f59e0b';
-            }
-        } else if (status.status === 'completed') {
-            clearInterval(pollInterval);
-            txt.textContent = '¡Completado!';
-            bar.style.backgroundColor = '#10b981';
-            setTimeout(loadHistory, 2000); // Faster reload
+                // Lógica de descarga normal
+                document.getElementById('speed').textContent = status.speed || '--';
+                document.getElementById('eta').textContent = status.eta || '--';
 
-            if (status.is_playlist) {
-                alert('Playlist descargada correctamente. Disponible en el historial.');
-                showStep('url');
-            } else if (status.filename) {
-                window.location.href = `/descarga/archivo/${status.filename}`;
-                showStep('url');
-            } else {
-                alert('Descarga completada. Revisa el historial.');
-                showStep('url');
+                if (status.status === 'downloading') {
+                    txt.textContent = 'Descargando...';
+                } else if (status.status === 'processing') {
+                    txt.textContent = 'Procesando...';
+                    bar.style.backgroundColor = '#f59e0b';
+                }
             }
-        } else if (status.status === 'error' || status.status === 'cancelled' || status.status === 'failed') {
-            clearInterval(pollInterval);
-            alert('Estado: ' + status.status + (status.error ? '\n' + status.error : ''));
-            resetStep();
+
+            // Manejo de estados finales
+            if (status.status === 'completed' || status.status === 'ready_for_zip') {
+                // Si es playlist, esperar a que el 'completed' real llegue (después del ZIP)
+                if (status.type === 'playlist' && status.status !== 'completed') {
+                    return; // Seguir polling hasta que el ZIP termine
+                }
+
+                clearInterval(pollInterval);
+                txt.textContent = '¡Completado!';
+                bar.style.backgroundColor = '#10b981';
+                setTimeout(loadHistory, 1500);
+
+                if (status.type === 'playlist') {
+                    alert(`Playlist "${status.playlist_title || 'descargada'}" completada.\nCarpeta: ${status.playlist_folder}\nZIP disponible en historial.`);
+                    showStep('url');
+                    // Limpiar contenedor de playlist visual
+                    const container = document.getElementById('playlistContainer');
+                    if (container) container.remove();
+
+                } else if (status.filename) {
+                    window.location.href = `/descarga/archivo/${status.filename}`;
+                    showStep('url');
+                } else {
+                    alert('Descarga completada. Revisa el historial.');
+                    showStep('url');
+                }
+
+            } else if (status.status === 'error' || status.status === 'cancelled' || status.status === 'failed' || status.status === 'completed_with_errors') {
+                clearInterval(pollInterval);
+                if (status.type === 'playlist') {
+                    alert(`Playlist finalizada con errores.\n${status.failed_count} fallidos.`);
+                } else {
+                    alert('Estado: ' + status.status + (status.error ? '\n' + status.error : ''));
+                }
+                resetStep();
+                const container = document.getElementById('playlistContainer');
+                if (container) container.remove();
+            }
+        } catch (e) {
+            console.error("Polling error:", e);
+            // No parar polling inmediatamente por un error de red transitorio
         }
-    }, 5000);
+    }, 2000); // Polling cada 2s
 }
+
+function createPlaylistContainer() {
+    const statusSection = document.getElementById('step-progress');
+    let container = document.getElementById('playlistContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'playlistContainer';
+        container.className = 'playlist-progress-container';
+        // Insertar después de la barra de progreso
+        const progressWrapper = document.querySelector('.progress-container');
+        progressWrapper.parentNode.insertBefore(container, progressWrapper.nextSibling);
+    }
+    return container;
+}
+
+function renderPlaylistItems(items, container) {
+    if (!items) return;
+
+    container.innerHTML = '';
+
+    items.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'playlist-item-row';
+        div.style.display = 'flex';
+        div.style.alignItems = 'center';
+        div.style.fontSize = '0.85rem';
+        div.style.margin = '4px 0';
+        div.style.padding = '4px';
+        div.style.borderBottom = '1px solid #eee';
+
+        let icon = '<i class="fas fa-clock text-gray"></i>';
+        let color = '#666';
+
+        if (item.status === 'downloading') {
+            icon = '<i class="fas fa-spinner fa-spin"></i>';
+            color = 'var(--accent-color)';
+        } else if (item.status === 'completed') {
+            icon = '<i class="fas fa-check-circle"></i>';
+            color = '#10b981';
+        } else if (item.status === 'failed') {
+            icon = '<i class="fas fa-times-circle"></i>';
+            color = '#ef4444';
+        }
+
+        div.innerHTML = `
+            <div style="width: 25px; color: ${color}">${icon}</div>
+            <div style="width: 30px; font-weight: bold;">#${item.index}</div>
+            <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.title}</div>
+            <div style="width: 60px; text-align: right; font-size: 0.8em;">${item.progress.toFixed(0)}%</div>
+        `;
+
+        container.appendChild(div);
+    });
+}
+
 
 // --- History & Timer Logic ---
 async function loadHistory() {

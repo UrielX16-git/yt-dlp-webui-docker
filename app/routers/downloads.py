@@ -47,6 +47,11 @@ class CancelRequest(BaseModel):
     task_id: str
 
 
+class SearchFileRequest(BaseModel):
+    filename: str  # Nombre del archivo (puede ser sanitizado o no)
+
+
+
 @router.post("/info")
 async def get_video_info(request: VideoInfoRequest):
     """
@@ -118,8 +123,55 @@ async def start_download(request: DownloadRequest):
         
         # Si es playlist, prioridad baja
         if request.download_playlist:
-            priority = QueueService.PRIORITY_LOW
+            # PLAYLIST EXPLOSION: Crear trabajos individuales para cada video
+            logger.info(f"Explosión de playlist iniciada para: {processed_url}")
+            
+            # Obtener info de la playlist
+            playlist_info = ytdlp_svc.get_playlist_info(processed_url, request.max_items)
+            
+            # Crear trabajo padre (no se procesa, solo rastrea)
+            from yt_dlp.utils import sanitize_filename
+            playlist_folder_name = sanitize_filename(playlist_info['playlist_title'], restricted=True)
+            
+            parent_job_id = queue.create_job(
+                job_type='playlist_batch',
+                url=processed_url,
+                parameters={
+                    'playlist_title': playlist_info['playlist_title'],
+                    'playlist_folder': playlist_folder_name,
+                    'format': request.format,
+                    'total_videos': playlist_info['returned_videos']
+                },
+                priority=QueueService.PRIORITY_LOW
+            )
+            
+            # Crear trabajos hijos para cada video
+            playlist_output_dir = f'/app/downloads/{playlist_folder_name}'
+            
+            for video in playlist_info['videos']:
+                child_params = {
+                    'quality': request.quality,
+                    'subtitles': request.subtitles,
+                    'subtitle_lang': request.subtitle_lang,
+                    'download_playlist': False,  # Es un video individual
+                    'max_items': -1,
+                    'custom_output_dir': playlist_output_dir,
+                    'video_title': video['title'],  # Para status granular
+                    'video_index': video['index']
+                }
+                
+                queue.create_job(
+                    job_type=job_type,
+                    url=video['url'],
+                    parameters=child_params,
+                    priority=QueueService.PRIORITY_LOW,
+                    parent_job_id=parent_job_id
+                )
+            
+            logger.info(f"Playlist explotada: {parent_job_id} con {len(playlist_info['videos'])} videos")
+            return {"task_id": parent_job_id}
         
+        # Descarga normal (video/audio individual)
         # Crear job
         job_id = queue.create_job(
             job_type=job_type,
@@ -187,7 +239,44 @@ async def get_download_status(task_id: str):
         if not status:
             raise HTTPException(status_code=404, detail="Tarea no encontrada")
         
-        # Adaptar formato para compatibilidad con frontend
+        # Si es un playlist_batch, retornar status granular
+        if status.get("type") == "playlist_batch":
+            children = queue.get_child_jobs(task_id)
+            
+            items = []
+            for child in children:
+                params = child.get('metadata', {}).get('parameters', {})
+                items.append({
+                    "id": child['id'],
+                    "title": params.get('video_title', 'Video'),
+                    "index": params.get('video_index', 0),
+                    "url": child.get('url', ''),
+                    "status": child['status'],
+                    "progress": child.get('progress', 0),
+                    "speed": child.get('speed'),
+                    "eta": child.get('eta'),
+                    "filename": child.get('output_file'),
+                    "error": child.get('error')
+                })
+            
+            # Ordenar por índice
+            items.sort(key=lambda x: x.get('index', 0))
+            
+            return {
+                "id": task_id,
+                "type": "playlist",
+                "status": status["status"],
+                "progress": status.get("progress", 0),
+                "filename": status.get("output_file"),  # El ZIP cuando esté listo
+                "playlist_folder": status['metadata']['parameters'].get('playlist_folder'),
+                "playlist_title": status['metadata']['parameters'].get('playlist_title'),
+                "total_count": status['metadata'].get('total_count', 0),
+                "completed_count": status['metadata'].get('completed_count', 0),
+                "failed_count": status['metadata'].get('failed_count', 0),
+                "items": items
+            }
+        
+        # Para trabajos individuales, mantener formato original
         return {
             "status": status["status"],
             "progress": status.get("progress", 0),
@@ -204,6 +293,65 @@ async def get_download_status(task_id: str):
         raise
     except Exception as e:
         logger.error(f"Error obteniendo estado: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/search")
+async def search_file(request: SearchFileRequest):
+    """
+    Busca un archivo en el directorio de descargas (incluyendo subcarpetas).
+    
+    Args:
+        request: Nombre del archivo a buscar (puede ser sanitizado o no)
+        
+    Returns:
+        Ruta relativa del archivo encontrado o error 404
+    """
+    try:
+        from yt_dlp.utils import sanitize_filename
+        
+        search_term = request.filename.strip()
+        
+        # Sanitizar el término de búsqueda (como lo haría yt-dlp)
+        sanitized_search = sanitize_filename(search_term, restricted=True)
+        
+        # Remover extensión del término de búsqueda si existe
+        search_base = os.path.splitext(search_term)[0]
+        sanitized_base = os.path.splitext(sanitized_search)[0]
+        
+        logger.info(f"Buscando archivo: '{search_term}' (sanitizado: '{sanitized_search}')")
+        
+        # Buscar recursivamente en downloads
+        for root, dirs, files in os.walk(DOWNLOAD_FOLDER):
+            for filename in files:
+                file_base = os.path.splitext(filename)[0]
+                
+                # Comparar con múltiples variantes
+                if (search_term.lower() in filename.lower() or
+                    sanitized_search.lower() in filename.lower() or
+                    search_base.lower() == file_base.lower() or
+                    sanitized_base.lower() == file_base.lower()):
+                    
+                    # Obtener ruta relativa desde DOWNLOAD_FOLDER
+                    full_path = os.path.join(root, filename)
+                    relative_path = os.path.relpath(full_path, DOWNLOAD_FOLDER)
+                    
+                    logger.info(f"Archivo encontrado: {relative_path}")
+                    
+                    return {
+                        "found": True,
+                        "path": relative_path,
+                        "filename": filename,
+                        "full_path": full_path
+                    }
+        
+        logger.warning(f"Archivo no encontrado: '{search_term}'")
+        raise HTTPException(status_code=404, detail=f"Archivo no encontrado: {search_term}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error buscando archivo: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
