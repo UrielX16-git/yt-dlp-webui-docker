@@ -74,4 +74,5 @@ services:
 
 networks:
   yt-dlp-network:
-    driver: bridge
+    name: multimedia-net
+    external: true
