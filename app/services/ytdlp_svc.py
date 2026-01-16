@@ -66,7 +66,15 @@ def get_video_info(url: str) -> Dict[str, Any]:
     # Procesar URL antes de usarla
     url = process_url(url)
     
-    ydl_opts = {'noplaylist': True}
+    ydl_opts = {
+        'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'player_skip': [],
+            }
+        }
+    }
     
     # Usar cookies si es YouTube y existe el archivo
     is_youtube = 'youtube.com' in url or 'youtu.be' in url
@@ -113,7 +121,13 @@ def get_playlist_info(url: str, max_items: int = -1) -> Dict[str, Any]:
     ydl_opts = {
         'extract_flat': True,  # Solo extraer metadata, no descargar
         'quiet': True,
-        'no_warnings': True
+        'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'player_skip': [],
+            }
+        }
     }
     
     # Usar cookies si es YouTube y existe el archivo
@@ -209,6 +223,12 @@ def download_media(
         'restrictfilenames': True,
         'writethumbnail': True,  # Descargar miniatura
         'add_metadata': True,  # Añadir metadatos al archivo
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'player_skip': [],
+            }
+        }
     }
     
     # Aplicar límite de items si es playlist y max_items > 0

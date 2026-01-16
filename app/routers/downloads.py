@@ -42,6 +42,7 @@ class DownloadRequest(BaseModel):
     subtitle_lang: Optional[str] = None
     download_playlist: bool = False
     max_items: int = -1  # -1 or 0 = todos, >0 = limit
+    group: str = 'default'  # Group/folder for organizing downloads
 
 
 class CancelRequest(BaseModel):
@@ -168,13 +169,14 @@ async def start_download(request: DownloadRequest):
                     'playlist_title': playlist_info['playlist_title'],
                     'playlist_folder': playlist_folder_name,
                     'format': request.format,
-                    'total_videos': playlist_info['returned_videos']
+                    'total_videos': playlist_info['returned_videos'],
+                    'group': request.group
                 },
                 priority=QueueService.PRIORITY_LOW
             )
             
             # Crear trabajos hijos para cada video
-            playlist_output_dir = f'/app/downloads/{playlist_folder_name}'
+            playlist_output_dir = f'/app/downloads/{request.group}/{playlist_folder_name}'
             
             for video in playlist_info['videos']:
                 child_params = {
@@ -185,7 +187,8 @@ async def start_download(request: DownloadRequest):
                     'max_items': -1,
                     'custom_output_dir': playlist_output_dir,
                     'video_title': video['title'],  # Para status granular
-                    'video_index': video['index']
+                    'video_index': video['index'],
+                    'group': request.group
                 }
                 
                 queue.create_job(
@@ -209,7 +212,8 @@ async def start_download(request: DownloadRequest):
                 'subtitles': request.subtitles,
                 'subtitle_lang': request.subtitle_lang,
                 'download_playlist': request.download_playlist,
-                'max_items': request.max_items
+                'max_items': request.max_items,
+                'group': request.group
             },
             priority=priority
         )
@@ -337,7 +341,7 @@ async def get_suggestions(limit: int = 5):
         Lista de videos sugeridos y la razón (query)
     """
     try:
-        history_svc = HistoryService()
+        history_svc = HistoryService(group='default')
         query = history_svc.get_recommendation_query()
         
         if not query:
@@ -460,9 +464,12 @@ async def search_file(request: SearchFileRequest):
 
 
 @router.get("/historial")
-async def get_history():
+async def get_history(group: str = 'default'):
     """
-    Lista todos los archivos descargados disponibles.
+    Lista todos los archivos descargados disponibles para un grupo específico.
+    
+    Args:
+        group: Group name (default: 'default')
     
     Returns:
         Lista de archivos con metadata
@@ -471,8 +478,19 @@ async def get_history():
         files = []
         now = time.time()
         
-        for f in os.listdir(DOWNLOAD_FOLDER):
-            path = os.path.join(DOWNLOAD_FOLDER, f)
+        # Construct group folder path
+        group_folder = os.path.join(DOWNLOAD_FOLDER, group)
+        
+        # If group folder doesn't exist, return empty list
+        if not os.path.exists(group_folder):
+            return []
+        
+        for f in os.listdir(group_folder):
+            # Skip history.json file
+            if f == 'history.json':
+                continue
+                
+            path = os.path.join(group_folder, f)
             
             if os.path.isfile(path):
                 stat = os.stat(path)

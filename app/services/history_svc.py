@@ -10,11 +10,22 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-HISTORY_FILE = '/app/downloads/history.json'
+DOWNLOAD_FOLDER = '/app/downloads'
 
 class HistoryService:
-    def __init__(self):
-        self.history_file = HISTORY_FILE
+    def __init__(self, group: str = 'default'):
+        """
+        Initialize HistoryService for a specific group.
+        
+        Args:
+            group: Group name (default: "default")
+        """
+        self.group = group
+        self.group_folder = os.path.join(DOWNLOAD_FOLDER, group)
+        self.history_file = os.path.join(self.group_folder, 'history.json')
+        
+        # Ensure group folder exists
+        os.makedirs(self.group_folder, exist_ok=True)
 
     def _load_history(self) -> List[Dict]:
         """Carga el historial desde el archivo JSON."""

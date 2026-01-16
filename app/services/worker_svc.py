@@ -103,6 +103,14 @@ class Worker:
             result = None
             try:
                 if job_type == "download_video":
+                    # Get group from params, default to 'default'
+                    group = params.get('group', 'default')
+                    
+                    # If no custom_output_dir, set it to group folder
+                    custom_output_dir = params.get('custom_output_dir')
+                    if not custom_output_dir:
+                        custom_output_dir = f'/app/downloads/{group}'
+                    
                     result = ytdlp_svc.download_media(
                         url=url,
                         format_type='video',
@@ -111,11 +119,19 @@ class Worker:
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
                         max_items=params.get('max_items', -1),
-                        custom_output_dir=params.get('custom_output_dir'),
+                        custom_output_dir=custom_output_dir,
                         progress_callback=progress_hook
                     )
                 
                 elif job_type == "download_audio":
+                    # Get group from params, default to 'default'
+                    group = params.get('group', 'default')
+                    
+                    # If no custom_output_dir, set it to group folder
+                    custom_output_dir = params.get('custom_output_dir')
+                    if not custom_output_dir:
+                        custom_output_dir = f'/app/downloads/{group}'
+                    
                     result = ytdlp_svc.download_media(
                         url=url,
                         format_type='audio',
@@ -124,7 +140,7 @@ class Worker:
                         subtitle_lang=params.get('subtitle_lang'),
                         download_playlist=params.get('download_playlist', False),
                         max_items=params.get('max_items', -1),
-                        custom_output_dir=params.get('custom_output_dir'),
+                        custom_output_dir=custom_output_dir,
                         progress_callback=progress_hook
                     )
                 
@@ -162,7 +178,9 @@ class Worker:
             
             # Guardar en historial
             try:
-                history_svc = HistoryService()
+                # Get group from params
+                group = params.get('group', 'default')
+                history_svc = HistoryService(group=group)
                 info = result.get('info', {})
                 # Asegurar formato
                 info['format_type'] = result.get('format_type', 'video')
@@ -221,7 +239,10 @@ class Worker:
                 logger.error(f"[WORKER] No se encontró playlist_folder en parent {parent_job_id}")
                 return
             
-            folder_path = os.path.join('/app/downloads', playlist_folder)
+            # Get group from parent parameters
+            group = parent_data['metadata']['parameters'].get('group', 'default')
+            
+            folder_path = os.path.join('/app/downloads', group, playlist_folder)
             
             if not os.path.isdir(folder_path):
                 logger.error(f"[WORKER] Carpeta no existe: {folder_path}")
@@ -234,9 +255,10 @@ class Worker:
             
             logger.info(f"[WORKER] Comprimiendo playlist: {playlist_folder}")
             
-            # Crear ZIP
+            # Crear ZIP (output path should include group)
+            zip_output_base = os.path.join('/app/downloads', group, playlist_folder)
             zip_path = shutil.make_archive(
-                os.path.join('/app/downloads', playlist_folder),
+                zip_output_base,
                 'zip',
                 folder_path
             )

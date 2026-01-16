@@ -161,7 +161,8 @@ async function startDownload() {
                 subtitles: subtitles,
                 subtitle_lang: subtitleLang,
                 download_playlist: downloadPlaylist,
-                max_items: maxItems
+                max_items: maxItems,
+                group: 'default'
             })
         });
         const data = await res.json();
@@ -256,7 +257,7 @@ function startPolling() {
                     if (container) container.remove();
 
                 } else if (status.filename) {
-                    window.location.href = `/descarga/archivo/${status.filename}`;
+                    window.location.href = `/descarga/archivo/default/${status.filename}`;
                     showStep('url');
                 } else {
                     alert('Descarga completada. Revisa el historial.');
@@ -339,7 +340,7 @@ function renderPlaylistItems(items, container) {
 // --- History & Timer Logic ---
 async function loadHistory() {
     try {
-        const res = await fetch('/descarga/historial');
+        const res = await fetch('/descarga/historial?group=default');
         const files = await res.json();
         renderHistory(files);
     } catch (e) {
@@ -356,8 +357,8 @@ function renderHistory(files) {
         item.className = 'history-item';
 
         let icon = 'fa-file-video';
-        let downloadBtn = `<a href="/descarga/archivo/${f.name}" class="btn-icon small" title="Descargar"><i class="fas fa-download"></i></a>`;
-        let viewBtn = `<a href="/descarga/view/${f.name}" target="_blank" class="btn-icon small" title="Ver"><i class="fas fa-eye"></i></a>`;
+        let downloadBtn = `<a href="/descarga/archivo/default/${f.name}" class="btn-icon small" title="Descargar"><i class="fas fa-download"></i></a>`;
+        let viewBtn = `<a href="/descarga/view/default/${f.name}" target="_blank" class="btn-icon small" title="Ver"><i class="fas fa-eye"></i></a>`;
 
         if (f.type === 'playlist') {
             icon = 'fa-folder';
@@ -377,7 +378,7 @@ function renderHistory(files) {
             <div class="file-actions">
                 ${viewBtn}
                 ${downloadBtn}
-                <button onclick="deleteFile('${f.name}')" class="btn-icon small danger" title="Borrar"><i class="fas fa-trash"></i></button>
+                <button onclick="deleteFile('default/${f.name}')" class="btn-icon small danger" title="Borrar"><i class="fas fa-trash"></i></button>
             </div>
         `;
         list.appendChild(item);
