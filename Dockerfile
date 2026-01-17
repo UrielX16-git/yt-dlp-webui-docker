@@ -12,7 +12,8 @@ WORKDIR /app
 
 # Copiar requirements e instalar dependencias
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -U --pre "yt-dlp[default]"
 
 # Copiar código de la aplicación
 COPY app ./app

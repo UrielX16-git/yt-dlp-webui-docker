@@ -68,19 +68,27 @@ def get_video_info(url: str) -> Dict[str, Any]:
     
     ydl_opts = {
         'noplaylist': True,
-        'extractor_args': {
+    }
+
+    # Configurar clientes según si hay cookies o no
+    is_youtube = 'youtube.com' in url or 'youtu.be' in url
+    
+    if is_youtube and os.path.exists(COOKIES_FILE):
+        ydl_opts['cookiefile'] = COOKIES_FILE
+        # android_sdkless no soporta cookies, usar android/web
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        }
+        logger.info(f"Usando cookies para info de: {url}")
+    else:
+        # Sin cookies, optimizar para evitar bloqueos
+        ydl_opts['extractor_args'] = {
             'youtube': {
                 'player_client': ['android_sdkless', 'web_safari'],
             }
-        },
-        'js_engines': ['node'],
-    }
-    
-    # Usar cookies si es YouTube y existe el archivo
-    is_youtube = 'youtube.com' in url or 'youtu.be' in url
-    if is_youtube and os.path.exists(COOKIES_FILE):
-        ydl_opts['cookiefile'] = COOKIES_FILE
-        logger.info(f"Usando cookies para info de: {url}")
+        }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -134,19 +142,25 @@ def get_playlist_info(url: str, max_items: int = -1) -> Dict[str, Any]:
         'extract_flat': True,  # Solo extraer metadata, no descargar
         'quiet': True,
         'no_warnings': True,
-        'extractor_args': {
+    }
+
+    # Configurar clientes y cookies
+    is_youtube = 'youtube.com' in url or 'youtu.be' in url
+    
+    if is_youtube and os.path.exists(COOKIES_FILE):
+        ydl_opts['cookiefile'] = COOKIES_FILE
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        }
+        logger.info(f"Usando cookies para info de playlist: {url}")
+    else:
+        ydl_opts['extractor_args'] = {
             'youtube': {
                 'player_client': ['android_sdkless', 'web_safari'],
             }
-        },
-        'js_engines': ['node'],
-    }
-    
-    # Usar cookies si es YouTube y existe el archivo
-    is_youtube = 'youtube.com' in url or 'youtu.be' in url
-    if is_youtube and os.path.exists(COOKIES_FILE):
-        ydl_opts['cookiefile'] = COOKIES_FILE
-        logger.info(f"Usando cookies para info de playlist: {url}")
+        }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -244,14 +258,8 @@ def download_media(
         'restrictfilenames': True,
         'writethumbnail': True,  # Descargar miniatura
         'add_metadata': True,  # Añadir metadatos al archivo
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android_sdkless', 'web_safari'],
-            }
-        },
-        'js_engines': ['node'],
     }
-    
+
     # Aplicar límite de items si es playlist y max_items > 0
     if download_playlist and max_items > 0:
         ydl_opts['playlistend'] = max_items
@@ -259,12 +267,23 @@ def download_media(
     # Progress hook
     if progress_callback:
         ydl_opts['progress_hooks'] = [progress_callback]
-    
-    # Usar cookies para YouTube
+
+    # Configurar clientes según cookies
     is_youtube = 'youtube.com' in url or 'youtu.be' in url
     if is_youtube and os.path.exists(COOKIES_FILE):
         ydl_opts['cookiefile'] = COOKIES_FILE
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        }
         logger.info(f"Usando cookies para: {url}")
+    else:
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android_sdkless', 'web_safari'],
+            }
+        }
     
     # Configurar subtítulos
     if subtitles:
