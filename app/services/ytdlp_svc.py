@@ -70,10 +70,10 @@ def get_video_info(url: str) -> Dict[str, Any]:
         'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'player_skip': [],
+                'player_client': ['android_sdkless', 'web_safari'],
             }
-        }
+        },
+        'js_engines': ['node'],
     }
     
     # Usar cookies si es YouTube y existe el archivo
@@ -82,17 +82,29 @@ def get_video_info(url: str) -> Dict[str, Any]:
         ydl_opts['cookiefile'] = COOKIES_FILE
         logger.info(f"Usando cookies para info de: {url}")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        
-        # Extraer idiomas de subtítulos disponibles
-        subtitles = set()
-        if 'subtitles' in info:
-            subtitles.update(info['subtitles'].keys())
-        if 'automatic_captions' in info:
-            subtitles.update(info['automatic_captions'].keys())
-        
-        sorted_subs = sorted(list(subtitles))
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Extraer idiomas de subtítulos disponibles
+            subtitles = set()
+            if 'subtitles' in info:
+                subtitles.update(info['subtitles'].keys())
+            if 'automatic_captions' in info:
+                subtitles.update(info['automatic_captions'].keys())
+            
+            sorted_subs = sorted(list(subtitles))
+            
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "Sign in to confirm your age" in error_msg:
+            raise ValueError("Error: Video con restricción de edad. Las cookies proporcionadas expiraron o no son de una cuenta verificada. Sube cookies frescas (exportadas en modo incógnito).")
+        elif "cookies are no longer valid" in error_msg:
+             raise ValueError("Error: Las cookies de YouTube expiraron o fueron rotadas. Por favor exporta nuevas cookies desde una ventana de incógnito y súbelas nuevamente.")
+        elif "Requested format is not available" in error_msg:
+            raise ValueError("Error: No se pudo obtener el formato. Posible bloqueo de YouTube o cookies inválidas.")
+        else:
+            raise e
         
     return {
         'title': info.get('title'),
@@ -124,10 +136,10 @@ def get_playlist_info(url: str, max_items: int = -1) -> Dict[str, Any]:
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'player_skip': [],
+                'player_client': ['android_sdkless', 'web_safari'],
             }
-        }
+        },
+        'js_engines': ['node'],
     }
     
     # Usar cookies si es YouTube y existe el archivo
@@ -136,39 +148,48 @@ def get_playlist_info(url: str, max_items: int = -1) -> Dict[str, Any]:
         ydl_opts['cookiefile'] = COOKIES_FILE
         logger.info(f"Usando cookies para info de playlist: {url}")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        
-        # Verificar que sea una playlist
-        if info.get('_type') != 'playlist':
-            raise ValueError('La URL no corresponde a una playlist')
-        
-        # Extraer información de los videos
-        entries = info.get('entries', [])
-        
-        # Aplicar límite si se especifica
-        if max_items > 0:
-            entries = entries[:max_items]
-        
-        videos = []
-        for idx, entry in enumerate(entries, 1):
-            if entry:  # Algunos entries pueden ser None si hay errores
-                videos.append({
-                    'index': idx,
-                    'url': entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
-                    'title': entry.get('title', 'Sin título'),
-                    'duration': format_duration(entry.get('duration')),
-                    'thumbnail': entry.get('thumbnail'),
-                    'uploader': entry.get('uploader') or entry.get('channel'),
-                })
-        
-        return {
-            'playlist_title': info.get('title'),
-            'playlist_uploader': info.get('uploader') or info.get('channel'),
-            'total_videos': len(info.get('entries', [])),
-            'returned_videos': len(videos),
-            'videos': videos
-        }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Verificar que sea una playlist
+            if info.get('_type') != 'playlist':
+                raise ValueError('La URL no corresponde a una playlist')
+            
+            # Extraer información de los videos
+            entries = info.get('entries', [])
+            
+            # Aplicar límite si se especifica
+            if max_items > 0:
+                entries = entries[:max_items]
+            
+            videos = []
+            for idx, entry in enumerate(entries, 1):
+                if entry:  # Algunos entries pueden ser None si hay errores
+                    videos.append({
+                        'index': idx,
+                        'url': entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                        'title': entry.get('title', 'Sin título'),
+                        'duration': format_duration(entry.get('duration')),
+                        'thumbnail': entry.get('thumbnail'),
+                        'uploader': entry.get('uploader') or entry.get('channel'),
+                    })
+            
+            return {
+                'playlist_title': info.get('title'),
+                'playlist_uploader': info.get('uploader') or info.get('channel'),
+                'total_videos': len(info.get('entries', [])),
+                'returned_videos': len(videos),
+                'videos': videos
+            }
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "Sign in to confirm your age" in error_msg:
+            raise ValueError("Error: Playlist con restricción de edad. Sube cookies frescas (exportadas en modo incógnito).")
+        elif "cookies are no longer valid" in error_msg:
+             raise ValueError("Error: Cookies expiradas/rotadas. Exporta nuevas cookies desde incógnito y súbelas.")
+        else:
+            raise e
 
 
 
@@ -225,10 +246,10 @@ def download_media(
         'add_metadata': True,  # Añadir metadatos al archivo
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'player_skip': [],
+                'player_client': ['android_sdkless', 'web_safari'],
             }
-        }
+        },
+        'js_engines': ['node'],
     }
     
     # Aplicar límite de items si es playlist y max_items > 0
@@ -325,39 +346,49 @@ def download_media(
         })
     
     # Ejecutar descarga
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        
-        result = {
-            'is_playlist': download_playlist and info.get('_type') == 'playlist',
-            'filename': None,
-            'playlist_folder': None,
-            'files': [],
-            'info': info,  # Retornar metadata completa para historial
-            'format_type': format_type
-        }
-        
-        if result['is_playlist']:
-            # Para playlists, retornar el nombre de la carpeta
-            playlist_title = info.get('playlist_title') or info.get('title', 'playlist')
-            # Sanitizar el nombre (yt-dlp ya lo hace con restrictfilenames)
-            from yt_dlp.utils import sanitize_filename
-            sanitized_playlist_name = sanitize_filename(playlist_title, restricted=True)
-            result['playlist_folder'] = sanitized_playlist_name
-            result['filename'] = None
-        else:
-            # Para videos individuales
-            temp_path = ydl.prepare_filename(info)
-            sanitized_base = os.path.splitext(os.path.basename(temp_path))[0]
+    # Ejecutar descarga
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
             
-            if format_type == 'audio':
-                filename = f"{sanitized_base}.mp3"
+            result = {
+                'is_playlist': download_playlist and info.get('_type') == 'playlist',
+                'filename': None,
+                'playlist_folder': None,
+                'files': [],
+                'info': info,  # Retornar metadata completa para historial
+                'format_type': format_type
+            }
+            
+            if result['is_playlist']:
+                # Para playlists, retornar el nombre de la carpeta
+                playlist_title = info.get('playlist_title') or info.get('title', 'playlist')
+                # Sanitizar el nombre (yt-dlp ya lo hace con restrictfilenames)
+                from yt_dlp.utils import sanitize_filename
+                sanitized_playlist_name = sanitize_filename(playlist_title, restricted=True)
+                result['playlist_folder'] = sanitized_playlist_name
+                result['filename'] = None
             else:
-                filename = f"{sanitized_base}.mp4"
+                # Para videos individuales
+                temp_path = ydl.prepare_filename(info)
+                sanitized_base = os.path.splitext(os.path.basename(temp_path))[0]
+                
+                if format_type == 'audio':
+                    filename = f"{sanitized_base}.mp3"
+                else:
+                    filename = f"{sanitized_base}.mp4"
+                
+                result['filename'] = filename
             
-            result['filename'] = filename
-        
-        return result
+            return result
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "Sign in to confirm your age" in error_msg:
+            raise ValueError("Descarga fallida: Video restringido por edad y cookies expiradas. Sube cookies nuevas.")
+        elif "cookies are no longer valid" in error_msg:
+             raise ValueError("Descarga fallida: Cookies expiradas. Sube cookies nuevas.")
+        else:
+            raise e
 
 
 def search_videos(query: str, max_results: int = 5) -> Dict[str, Any]:
@@ -383,7 +414,8 @@ def search_videos(query: str, max_results: int = 5) -> Dict[str, Any]:
     ydl_opts = {
         'extract_flat': True,  # Solo metadata, no descargar
         'quiet': True,
-        'no_warnings': True
+        'no_warnings': True,
+        'js_engines': ['node'],
     }
     
     # Usar cookies si existen
