@@ -329,19 +329,20 @@ async def get_download_status(task_id: str):
 
 
 @router.get("/suggestions")
-async def get_suggestions(limit: int = 5):
+async def get_suggestions(limit: int = 5, group: str = 'default'):
     """
     Obtiene sugerencias de descarga basadas en el historial.
     Filtra videos ya descargados para evitar repeticiones.
     
     Args:
         limit: Número de sugerencias
+        group: Nombre del grupo (empresa) para filtrar historial
         
     Returns:
         Lista de videos sugeridos y la razón (query)
     """
     try:
-        history_svc = HistoryService(group='default')
+        history_svc = HistoryService(group=group)
         query = history_svc.get_recommendation_query()
         
         if not query:
