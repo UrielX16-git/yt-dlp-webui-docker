@@ -1,10 +1,10 @@
 FROM python:3.11-slim
 
-# Instalar FFmpeg y Node.js (requeridos por yt-dlp)
+# Instalar FFmpeg y Node.js (requeridos por yt-dlp) y curl para healthcheck
 # FFmpeg: para merge de audio/video
 # Node.js: para resolver desafíos de firma de YouTube
 RUN apt-get update && \
-    apt-get install -y ffmpeg nodejs npm && \
+    apt-get install -y ffmpeg nodejs npm curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
