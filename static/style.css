@@ -336,6 +336,7 @@ h1, h2, h3, h4 {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    height: 100%;
 }
 
 .history-section {
@@ -1126,10 +1127,52 @@ kbd {
    Descargas Activas (Sidebar)
    ========================================================================== */
 
+.active-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.active-card .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    margin: 0;
+    padding: 2rem 1rem 1rem;
+}
+
 .active-list {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.active-list:empty {
+    display: none;
+}
+
+.active-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.active-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.active-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-pill);
+}
+
+.active-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .active-item {
@@ -1610,6 +1653,20 @@ kbd {
 @media (max-width: 960px) {
     .layout {
         grid-template-columns: 1fr;
+    }
+
+    .side-col {
+        height: auto;
+    }
+
+    .active-card {
+        min-height: auto;
+        flex: none;
+    }
+
+    .active-card .empty-state {
+        flex: none;
+        padding: 1.5rem 1rem;
     }
 
     .hero-title {
