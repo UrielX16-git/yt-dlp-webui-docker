@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "yt-dlp-mcp": {
+      "serverUrl": "http://localhost:8085/mcp"
+    }
+  }
+}
