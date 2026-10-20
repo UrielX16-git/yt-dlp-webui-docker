@@ -7,6 +7,7 @@ import uuid
 import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
+# pyrefly: ignore[missing-import]
 import valkey
 import logging
 
@@ -271,6 +272,58 @@ class QueueService:
             "processing": self.redis.scard("processing_jobs"),
             "completed_4h": self.redis.zcard("completed_jobs"),
             "failed_1h": self.redis.zcard("failed_jobs")
+        }
+    
+    def get_live_stats(self) -> Dict[str, Any]:
+        """
+        Estadísticas "reales" para la UI.
+        
+        - Ignora los trabajos tracker `playlist_batch` (no se descargan).
+        - Limpia IDs huérfanos/finalizados de `processing_jobs`.
+        - Cuenta completados (4h) y fallidos (1h) por ventana de tiempo.
+        
+        Returns:
+            Diccionario con pending, processing, completed, failed
+        """
+        now = datetime.utcnow().timestamp()
+        
+        # Pendientes (excluyendo trackers de playlist)
+        pending = 0
+        queued_ids = self.redis.zrange("job_queue", 0, -1)
+        if queued_ids:
+            raw = self.redis.mget([f"job:{j}" for j in queued_ids])
+            for item in raw:
+                if not item:
+                    continue
+                data = json.loads(item)
+                if data.get("type") != "playlist_batch":
+                    pending += 1
+        
+        # En proceso (limpiando IDs obsoletos)
+        processing = 0
+        proc_ids = list(self.redis.smembers("processing_jobs"))
+        if proc_ids:
+            raw = self.redis.mget([f"job:{j}" for j in proc_ids])
+            stale = []
+            for job_id, item in zip(proc_ids, raw):
+                if not item:
+                    stale.append(job_id)
+                    continue
+                data = json.loads(item)
+                if data.get("type") == "playlist_batch":
+                    continue
+                if data.get("status") in ("downloading", "processing"):
+                    processing += 1
+                else:
+                    stale.append(job_id)
+            if stale:
+                self.redis.srem("processing_jobs", *stale)
+        
+        return {
+            "pending": pending,
+            "processing": processing,
+            "completed": self.redis.zcount("completed_jobs", now - 14400, "+inf"),
+            "failed": self.redis.zcount("failed_jobs", now - 3600, "+inf"),
         }
     
     def get_queue_jobs(self, limit: int = 50) -> List[Dict[str, Any]]:

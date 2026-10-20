@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import os
+import re
 import logging
 import datetime
 import time
@@ -22,6 +23,25 @@ router = APIRouter(prefix="/descarga", tags=["Descargas"])
 
 DOWNLOAD_FOLDER = '/app/downloads'
 EXPIRATION_TIME = 4 * 3600  # 4 horas
+
+_GROUP_RE = re.compile(r'^[\w\- ]{1,40}$')
+
+
+def _safe_group(group: str) -> str:
+    """Valida el nombre de grupo (carpeta) para evitar path traversal."""
+    group = (group or 'default').strip()
+    if not _GROUP_RE.match(group):
+        raise HTTPException(status_code=400, detail="Nombre de grupo inválido")
+    return group
+
+
+def _safe_path(relative: str) -> str:
+    """Resuelve una ruta relativa asegurando que quede dentro de DOWNLOAD_FOLDER."""
+    base = os.path.realpath(DOWNLOAD_FOLDER)
+    path = os.path.realpath(os.path.join(base, relative))
+    if path != base and not path.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Ruta inválida")
+    return path
 
 
 # Modelos Pydantic
@@ -44,6 +64,9 @@ class DownloadRequest(BaseModel):
     download_playlist: bool = False
     max_items: int = -1  # -1 or 0 = todos, >0 = limit
     group: str = 'default'  # Group/folder for organizing downloads
+    title: Optional[str] = None  # Título (para mostrar en la UI)
+    thumbnail: Optional[str] = None  # Miniatura (para mostrar en la UI)
+    selected_indices: Optional[List[int]] = None  # Playlist: índices a descargar (None = todos)
 
 
 class CancelRequest(BaseModel):
@@ -140,6 +163,7 @@ async def start_download(request: DownloadRequest):
     try:
         # Procesar URL antes de encolar
         processed_url = ytdlp_svc.process_url(request.url)
+        request.group = _safe_group(request.group)
         
         queue = QueueService()
         
@@ -159,6 +183,14 @@ async def start_download(request: DownloadRequest):
             # Obtener info de la playlist
             playlist_info = await asyncio.to_thread(ytdlp_svc.get_playlist_info, processed_url, request.max_items)
             
+            # Filtrar por selección del usuario (si aplica)
+            if request.selected_indices:
+                wanted = set(request.selected_indices)
+                playlist_info['videos'] = [v for v in playlist_info['videos'] if v['index'] in wanted]
+                playlist_info['returned_videos'] = len(playlist_info['videos'])
+                if not playlist_info['videos']:
+                    raise HTTPException(status_code=400, detail="No se seleccionó ningún video válido")
+            
             # Crear trabajo padre (no se procesa, solo rastrea)
             from yt_dlp.utils import sanitize_filename
             playlist_folder_name = sanitize_filename(playlist_info['playlist_title'], restricted=True)
@@ -171,7 +203,8 @@ async def start_download(request: DownloadRequest):
                     'playlist_folder': playlist_folder_name,
                     'format': request.format,
                     'total_videos': playlist_info['returned_videos'],
-                    'group': request.group
+                    'group': request.group,
+                    'thumbnail': request.thumbnail
                 },
                 priority=QueueService.PRIORITY_LOW
             )
@@ -189,6 +222,7 @@ async def start_download(request: DownloadRequest):
                     'custom_output_dir': playlist_output_dir,
                     'video_title': video['title'],  # Para status granular
                     'video_index': video['index'],
+                    'thumbnail': video.get('thumbnail'),
                     'group': request.group
                 }
                 
@@ -214,7 +248,9 @@ async def start_download(request: DownloadRequest):
                 'subtitle_lang': request.subtitle_lang,
                 'download_playlist': request.download_playlist,
                 'max_items': request.max_items,
-                'group': request.group
+                'group': request.group,
+                'video_title': request.title,
+                'thumbnail': request.thumbnail
             },
             priority=priority
         )
@@ -222,6 +258,8 @@ async def start_download(request: DownloadRequest):
         logger.info(f"Descarga encolada: {job_id}")
         return {"task_id": job_id}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error iniciando descarga: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -310,6 +348,7 @@ async def get_download_status(task_id: str):
             }
         
         # Para trabajos individuales, mantener formato original
+        params = status.get('metadata', {}).get('parameters', {})
         return {
             "status": status["status"],
             "progress": status.get("progress", 0),
@@ -319,13 +358,52 @@ async def get_download_status(task_id: str):
             "is_playlist": status.get("is_playlist", False),
             "playlist_index": status.get("playlist_index"),
             "playlist_count": status.get("playlist_count"),
-            "error": status.get("error")
+            "error": status.get("error"),
+            "title": params.get("video_title"),
+            "thumbnail": params.get("thumbnail"),
+            "group": params.get("group", "default")
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error obteniendo estado: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/queue/stats")
+async def get_queue_stats():
+    """
+    Estadísticas en vivo de la cola de descargas.
+    
+    Returns:
+        pending, processing, completed (últimas 4h), failed (última hora)
+    """
+    try:
+        queue = QueueService()
+        return await asyncio.to_thread(queue.get_live_stats)
+    except Exception as e:
+        logger.error(f"Error obteniendo estadísticas de cola: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/grupos")
+async def list_groups():
+    """
+    Lista los grupos (carpetas de primer nivel) existentes en downloads.
+    
+    Returns:
+        Lista de nombres de grupo
+    """
+    try:
+        groups = {'default'}
+        if os.path.exists(DOWNLOAD_FOLDER):
+            for name in os.listdir(DOWNLOAD_FOLDER):
+                if os.path.isdir(os.path.join(DOWNLOAD_FOLDER, name)) and _GROUP_RE.match(name):
+                    groups.add(name)
+        return sorted(groups, key=lambda g: (g != 'default', g.lower()))
+    except Exception as e:
+        logger.error(f"Error listando grupos: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -479,6 +557,7 @@ async def get_history(group: str = 'default'):
     try:
         files = []
         now = time.time()
+        group = _safe_group(group)
         
         # Construct group folder path
         group_folder = os.path.join(DOWNLOAD_FOLDER, group)
@@ -533,6 +612,8 @@ async def get_history(group: str = 'default'):
         files.sort(key=lambda x: x['date'], reverse=True)
         return files
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error leyendo historial: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -550,9 +631,9 @@ async def download_file(filename: str):
         Archivo para descarga
     """
     try:
-        path = os.path.join(DOWNLOAD_FOLDER, filename)
+        path = _safe_path(filename)
         
-        if not os.path.exists(path):
+        if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Archivo no encontrado")
         
         # Touch para actualizar timestamp (evitar expiración)
@@ -583,7 +664,9 @@ async def delete_file(filename: str):
         Mensaje de confirmación
     """
     try:
-        path = os.path.join(DOWNLOAD_FOLDER, filename)
+        path = _safe_path(filename)
+        if path == os.path.realpath(DOWNLOAD_FOLDER):
+            raise HTTPException(status_code=400, detail="No se puede eliminar la carpeta raíz")
         
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Elemento no encontrado")
@@ -614,9 +697,9 @@ async def view_file(filename: str):
         Archivo para visualización en navegador
     """
     try:
-        path = os.path.join(DOWNLOAD_FOLDER, filename)
+        path = _safe_path(filename)
         
-        if not os.path.exists(path):
+        if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Archivo no encontrado")
         
         # Touch para actualizar timestamp
@@ -631,7 +714,15 @@ async def view_file(filename: str):
             '.mp3': 'audio/mpeg',
             '.m4a': 'audio/mp4',
             '.wav': 'audio/wav',
-            '.ogg': 'audio/ogg'
+            '.ogg': 'audio/ogg',
+            '.opus': 'audio/ogg',
+            '.flac': 'audio/flac',
+            '.srt': 'text/plain; charset=utf-8',
+            '.vtt': 'text/vtt; charset=utf-8',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp'
         }
         media_type = media_type_map.get(ext, 'application/octet-stream')
         
