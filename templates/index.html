@@ -201,7 +201,10 @@
             <section class="card suggestions hidden" id="suggestionsSection">
                 <div class="section-head">
                     <h2><i class="fas fa-wand-magic-sparkles"></i> Sugerencias para ti</h2>
-                    <small class="muted" id="suggestReason"></small>
+                    <div style="display: inline-flex; align-items: center; gap: 0.75rem;">
+                        <small class="muted" id="suggestReason"></small>
+                        <button type="button" class="btn btn-ghost small" id="btnRefreshSuggestions" title="Actualizar sugerencias"><i class="fas fa-sync-alt"></i></button>
+                    </div>
                 </div>
                 <div class="carousel" id="suggestionsList"></div>
             </section>

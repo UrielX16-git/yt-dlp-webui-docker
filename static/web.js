@@ -951,8 +951,11 @@
 
     // --- Sugerencias Inteligentes ---
     async function loadSuggestions() {
+        const btnRefresh = document.getElementById('btnRefreshSuggestions');
+        const icon = btnRefresh ? btnRefresh.querySelector('i') : null;
+        if (icon) icon.classList.add('fa-spin');
         try {
-            const res = await fetch(`/descarga/suggestions?limit=6&group=${encodeURIComponent(currentGroup)}`);
+            const res = await fetch(`/descarga/suggestions?limit=6&group=${encodeURIComponent(currentGroup)}&_t=${Date.now()}`);
             if (!res.ok) return;
             const data = await res.json();
             const section = document.getElementById('suggestionsSection');
@@ -991,6 +994,8 @@
             section.classList.remove('hidden');
         } catch (e) {
             // Silencioso
+        } finally {
+            if (icon) icon.classList.remove('fa-spin');
         }
     }
 
@@ -1158,6 +1163,13 @@
             loadHistory();
             showToast('Historial actualizado', 'info', 2000);
         });
+
+        const btnRefreshSuggestions = document.getElementById('btnRefreshSuggestions');
+        if (btnRefreshSuggestions) {
+            btnRefreshSuggestions.addEventListener('click', () => {
+                loadSuggestions();
+            });
+        }
 
         // Selector de grupo
         document.getElementById('groupSelect').addEventListener('change', (e) => {

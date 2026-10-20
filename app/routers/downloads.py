@@ -434,13 +434,22 @@ async def get_suggestions(limit: int = 5, group: str = 'default'):
             
         logger.info(f"Buscando sugerencias para: {query}")
         
-        search_results = ytdlp_svc.search_videos(query, limit * 2)
+        # Buscar suficientes candidatos (hasta el máximo permitido de 20)
+        search_limit = min(max(limit * 3, 10), 20)
+        search_results = ytdlp_svc.search_videos(query, search_limit)
         
-        # Filtrar videos ya descargados
+        # Filtrar videos ya descargados (tanto por ID como por archivo físico)
         from yt_dlp.utils import sanitize_filename
         filtered_results = []
+        downloaded_ids = history_svc.get_downloaded_ids()
         
-        for video in search_results['results']:
+        for video in search_results.get('results', []):
+            # Omitir si ya está registrado en el historial
+            vid_id = video.get('id')
+            if vid_id and vid_id in downloaded_ids:
+                logger.debug(f"Video ya descargado en historial (omitido): {vid_id}")
+                continue
+
             title = video.get('title', '')
             if not title:
                 continue
@@ -457,7 +466,7 @@ async def get_suggestions(limit: int = 5, group: str = 'default'):
                     # Comparar título sanitizado con nombre de archivo
                     if sanitized_title.lower() == file_base.lower():
                         file_exists = True
-                        logger.debug(f"Video ya descargado (omitido): {title}")
+                        logger.debug(f"Video ya descargado en disco (omitido): {title}")
                         break
                 
                 if file_exists:
@@ -471,10 +480,10 @@ async def get_suggestions(limit: int = 5, group: str = 'default'):
                 if len(filtered_results) >= limit:
                     break
         
-        logger.info(f"Sugerencias filtradas: {len(filtered_results)} de {len(search_results['results'])} originales")
+        logger.info(f"Sugerencias filtradas: {len(filtered_results)} de {len(search_results.get('results', []))} originales")
         
         return {
-            "reason": f"Based on your history: {query}",
+            "reason": f"Basado en tu historial: {query}",
             "query": query,
             "results": filtered_results
         }
