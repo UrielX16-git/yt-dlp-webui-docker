@@ -4,8 +4,7 @@ Arquitectura de microservicios con cola de procesamiento.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import downloads, cookies
-import os
+from .routers import downloads
 import logging
 
 # Configurar logging
@@ -26,7 +25,7 @@ logger.info("=" * 60)
 app = FastAPI(
     title="API de Descarga yt-dlp",
     description="API REST para descarga de videos y audios usando yt-dlp con sistema de cola",
-    version="2.0.0",
+    version="2.1.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -42,7 +41,6 @@ app.add_middleware(
 
 # Registrar routers
 app.include_router(downloads.router)
-app.include_router(cookies.router)
 
 
 @app.get("/")
@@ -51,7 +49,7 @@ async def root():
     logger.info("Solicitud recibida en endpoint raíz /")
     return {
         "message": "API de Descarga yt-dlp con Cola",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "status": "online",
         "features": {
             "queue_system": "Valkey + Worker asíncrono",
@@ -76,10 +74,6 @@ async def root():
                 "/descarga/archivo/{filename}": "[GET] Descargar archivo",
                 "/descarga/archivo/eliminar/{filename}": "[DELETE] Eliminar archivo",
                 "/descarga/view/{filename}": "[GET] Ver archivo (streaming)"
-            },
-            "cookies": {
-                "/cookies/status": "[GET] Estado de cookies",
-                "/cookies/upload": "[POST] Subir archivo de cookies (Netscape)"
             }
         },
         "docs": "/docs",

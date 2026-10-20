@@ -11,47 +11,7 @@ document.getElementById('urlInput').addEventListener('keypress', (e) => {
 });
 document.getElementById('btnCheck').addEventListener('click', checkUrl);
 
-async function checkCookieStatus() {
-    try {
-        const res = await fetch('/cookies/status');
-        const data = await res.json();
-        const btn = document.getElementById('btnUploadCookies');
-        if (data.exists) {
-            btn.style.backgroundColor = '#10b981'; // Green
-            btn.title = "Cookies activas (YouTube)";
-        } else {
-            btn.style.backgroundColor = '#ef4444'; // Red
-            btn.title = "Sin cookies (YouTube)";
-        }
-    } catch (e) {
-        console.error("Error checking cookies:", e);
-    }
-}
 
-async function uploadCookies(input) {
-    if (!input.files || !input.files[0]) return;
-
-    const file = input.files[0];
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const res = await fetch('/cookies/upload', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await res.json();
-
-        if (data.error) throw new Error(data.error);
-
-        alert('Cookies subidas correctamente.');
-        checkCookieStatus(); // Refresh status
-    } catch (e) {
-        alert('Error al subir cookies: ' + e.message);
-    } finally {
-        input.value = ''; // Reset input
-    }
-}
 
 function setType(type) {
     currentType = type;
@@ -229,10 +189,18 @@ function startPolling() {
                 document.getElementById('speed').textContent = status.speed || '--';
                 document.getElementById('eta').textContent = status.eta || '--';
 
-                if (status.status === 'downloading') {
-                    txt.textContent = 'Descargando...';
+                if (status.status === 'pending' || status.status === 'queued') {
+                    txt.textContent = 'En cola de espera... (procesando descargas previas)';
+                    bar.style.backgroundColor = '#6366f1';
+                } else if (status.status === 'downloading') {
+                    if (!status.progress || status.progress === 0) {
+                        txt.textContent = 'Conectando y analizando video...';
+                    } else {
+                        txt.textContent = 'Descargando...';
+                    }
+                    bar.style.backgroundColor = 'var(--accent-color)';
                 } else if (status.status === 'processing') {
-                    txt.textContent = 'Procesando...';
+                    txt.textContent = 'Procesando y empaquetando archivo...';
                     bar.style.backgroundColor = '#f59e0b';
                 }
             }
@@ -445,4 +413,3 @@ function showLoader(show) {
 
 // Init
 loadHistory();
-checkCookieStatus();

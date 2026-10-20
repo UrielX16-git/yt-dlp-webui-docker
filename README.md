@@ -15,7 +15,8 @@ Descargador de videos y audios usando yt-dlp con interfaz web moderna, arquitect
 
 - **Múltiples Formatos**: Soporte para video (4K, 1080p, 720p) y audio (MP3)
 - **Subtítulos**: Descarga de subtítulos con selección de idioma
-- **Cookies**: Soporte para autenticación de YouTube via cookies
+- **Runtime Deno Integrado**: Desafíos de firma de YouTube resueltos automáticamente sin errores
+- **Auto-actualización**: yt-dlp se actualiza automáticamente al arrancar los contenedores
 
 ### Sistema de Playlists Avanzado ⭐
 
@@ -141,11 +142,6 @@ http://localhost:8001/docs
 - `GET /descarga/archivo/{filename}` - Descargar archivo
 - `DELETE /descarga/archivo/eliminar/{filename}` - Eliminar archivo
 - `GET /descarga/view/{filename}` - Ver archivo (streaming)
-
-### Cookies
-
-- `GET /cookies/status` - Estado de cookies
-- `POST /cookies/upload` - Subir archivo de cookies (formato Netscape)
 
 ## Ejemplo de Uso - Playlist
 
@@ -277,15 +273,6 @@ curl -X POST "http://localhost:5000/descarga/search" \
 }
 ```
 
-## �🍪 Uso de Cookies (YouTube)
-
-Para descargar videos privados o con restricciones de edad de YouTube:
-
-1. Instalar extensión de navegador para exportar cookies (ej: "Get cookies.txt")
-2. Exportar cookies de YouTube en formato Netscape
-3. En la interfaz web, hacer clic en el icono de cookie (arriba a la derecha)
-4. Subir el archivo `.txt`
-
 ## 🔧 Configuración
 
 ### Variables de Entorno
@@ -324,8 +311,7 @@ yt_dlp-webui-docker/
 │   ├── main.py              # FastAPI app
 │   ├── routers/
 │   │   ├── __init__.py
-│   │   ├── downloads.py     # Endpoints de descarga
-│   │   └── cookies.py       # Endpoints de cookies
+│   │   └── downloads.py     # Endpoints de descarga
 │   └── services/
 │       ├── __init__.py
 │       ├── queue_svc.py     # Gestión de cola Valkey (parent-child tracking)
@@ -391,7 +377,6 @@ docker-compose up -d
 ### Persistencia
 
 - Los archivos descargados se guardan en `./downloads` (volumen Docker persistente)
-- Las cookies se guardan en el contenedor de la API (no persistente, resubir después de rebuild)
 - El sistema usa **Valkey** en lugar de Redis (fork open-source compatible)
 - Los jobs en Valkey expiran automáticamente (completados: 4h, fallidos: 1h)
 

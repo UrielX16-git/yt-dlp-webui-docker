@@ -10,6 +10,7 @@ import logging
 import datetime
 import time
 import shutil
+import asyncio
 
 from ..services.queue_svc import QueueService
 from ..services.history_svc import HistoryService
@@ -67,7 +68,7 @@ async def get_video_info(request: VideoInfoRequest):
     """
     try:
         logger.info(f"Obteniendo info de: {request.url}")
-        info = ytdlp_svc.get_video_info(request.url)
+        info = await asyncio.to_thread(ytdlp_svc.get_video_info, request.url)
         return info
     except Exception as e:
         logger.error(f"Error obteniendo info: {str(e)}")
@@ -87,7 +88,7 @@ async def get_playlist_info(request: PlaylistInfoRequest):
     """
     try:
         logger.info(f"Obteniendo info de playlist: {request.url} (max_items: {request.max_items})")
-        info = ytdlp_svc.get_playlist_info(request.url, request.max_items)
+        info = await asyncio.to_thread(ytdlp_svc.get_playlist_info, request.url, request.max_items)
         return info
     except ValueError as e:
         logger.error(f"Error: {str(e)}")
@@ -114,7 +115,7 @@ async def search_youtube(query: str, limit: int = 5):
             raise HTTPException(status_code=400, detail="El parámetro 'query' no puede estar vacío")
         
         logger.info(f"Búsqueda en YouTube: '{query}' (limit: {limit})")
-        results = ytdlp_svc.search_videos(query, limit)
+        results = await asyncio.to_thread(ytdlp_svc.search_videos, query, limit)
         return results
     except ValueError as e:
         logger.error(f"Error de validación: {str(e)}")
@@ -156,7 +157,7 @@ async def start_download(request: DownloadRequest):
             logger.info(f"Explosión de playlist iniciada para: {processed_url}")
             
             # Obtener info de la playlist
-            playlist_info = ytdlp_svc.get_playlist_info(processed_url, request.max_items)
+            playlist_info = await asyncio.to_thread(ytdlp_svc.get_playlist_info, processed_url, request.max_items)
             
             # Crear trabajo padre (no se procesa, solo rastrea)
             from yt_dlp.utils import sanitize_filename

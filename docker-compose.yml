@@ -28,9 +28,9 @@ services:
       - PYTHONUNBUFFERED=1
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
+      - YTDLP_AUTO_UPDATE=true
     volumes:
       - ./downloads:/app/downloads
-      - ./cookies.txt:/app/cookies.txt
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:80/health" ]
@@ -52,9 +52,9 @@ services:
       - PYTHONUNBUFFERED=1
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
+      - YTDLP_AUTO_UPDATE=true
     volumes:
       - ./downloads:/app/downloads
-      - ./cookies.txt:/app/cookies.txt
     restart: unless-stopped
     command: python -m app.services.worker_svc
     networks:

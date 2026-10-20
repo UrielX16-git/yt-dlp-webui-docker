@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 
-# Instalar FFmpeg y Node.js (requeridos por yt-dlp) y curl para healthcheck
-# FFmpeg: para merge de audio/video
-# Node.js: para resolver desafíos de firma de YouTube
+# Copiar Deno desde la imagen oficial (runtime JS requerido por yt-dlp)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# Instalar FFmpeg (para merge y metadatos) y curl (para healthchecks)
 RUN apt-get update && \
-    apt-get install -y ffmpeg nodejs npm curl && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -14,6 +15,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir -U --pre "yt-dlp[default]"
+
+# Copiar script entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Copiar código de la aplicación
 COPY app ./app
@@ -25,6 +30,8 @@ RUN mkdir -p /app/downloads
 
 # Puerto de la API
 EXPOSE 80
+
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Comando por defecto: API
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]

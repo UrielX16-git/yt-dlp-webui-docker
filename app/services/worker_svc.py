@@ -25,10 +25,13 @@ logger = logging.getLogger(__name__)
 class Worker:
     """Worker para procesar jobs de descarga de la cola."""
     
-    def __init__(self):
+    def __init__(self, max_concurrent: int = 2):
         self.queue = QueueService()
         self.running = True
-        logger.info("[WORKER] Worker inicializado")
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.active_tasks = set()
+        logger.info(f"[WORKER] Worker inicializado (concurrencia máx: {max_concurrent})")
     
     def handle_shutdown(self, signum, frame):
         """Maneja señales de shutdown gracefully."""
@@ -111,7 +114,8 @@ class Worker:
                     if not custom_output_dir:
                         custom_output_dir = f'/app/downloads/{group}'
                     
-                    result = ytdlp_svc.download_media(
+                    result = await asyncio.to_thread(
+                        ytdlp_svc.download_media,
                         url=url,
                         format_type='video',
                         quality=params.get('quality', 'best'),
@@ -132,7 +136,8 @@ class Worker:
                     if not custom_output_dir:
                         custom_output_dir = f'/app/downloads/{group}'
                     
-                    result = ytdlp_svc.download_media(
+                    result = await asyncio.to_thread(
+                        ytdlp_svc.download_media,
                         url=url,
                         format_type='audio',
                         quality=params.get('quality', 'best'),
@@ -285,30 +290,48 @@ class Worker:
             )
     
     
+    async def _process_wrapper(self, job_id: str):
+        try:
+            await self.process_job(job_id)
+        finally:
+            self.semaphore.release()
+
     async def run(self):
-        """Loop principal del worker."""
+        """Loop principal del worker con soporte de concurrencia."""
         signal.signal(signal.SIGTERM, self.handle_shutdown)
         signal.signal(signal.SIGINT, self.handle_shutdown)
         
         logger.info("=" * 80)
-        logger.info("[WORKER] Worker iniciado - esperando jobs en la cola...")
+        logger.info(f"[WORKER] Worker iniciado (Concurrencia máx: {self.max_concurrent}) - esperando jobs...")
         logger.info("=" * 80)
         
         while self.running:
             try:
+                # Esperar a que haya un slot disponible
+                await self.semaphore.acquire()
+                if not self.running:
+                    self.semaphore.release()
+                    break
+                
                 # Obtener siguiente job de la cola (con prioridad)
                 job_id = self.queue.get_next_job()
                 
                 if job_id:
-                    await self.process_job(job_id)
+                    task = asyncio.create_task(self._process_wrapper(job_id))
+                    self.active_tasks.add(task)
+                    task.add_done_callback(self.active_tasks.discard)
                 else:
-                    # No hay jobs, esperar un segundo
+                    self.semaphore.release()
                     await asyncio.sleep(1)
                 
             except Exception as e:
                 logger.error(f"[WORKER] Error en loop principal: {str(e)}")
-                await asyncio.sleep(5)
+                await asyncio.sleep(2)
         
+        if self.active_tasks:
+            logger.info(f"[WORKER] Esperando a que finalicen {len(self.active_tasks)} tareas activas...")
+            await asyncio.gather(*self.active_tasks, return_exceptions=True)
+            
         logger.info("[WORKER] Worker detenido")
 
 
