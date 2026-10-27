@@ -1588,7 +1588,8 @@ kbd {
     border-radius: var(--radius-md);
     overflow: hidden;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     justify-content: center;
     min-height: 260px;
 }
@@ -1597,6 +1598,46 @@ kbd {
     width: 100%;
     max-height: 70vh;
     outline: none;
+    display: block;
+}
+
+.player-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem;
+    background: rgba(14, 18, 36, 0.95);
+    border-top: 1px solid var(--border-subtle);
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.player-toolbar-left, .player-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.player-speed-select {
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main);
+    padding: 0.3rem 0.55rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    cursor: pointer;
+    outline: none;
+    font-family: inherit;
+}
+
+.player-speed-select:focus {
+    border-color: var(--primary-from);
+}
+
+.player-shortcuts-hint {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-right: 0.25rem;
 }
 
 /* ==========================================================================

@@ -1,10 +1,11 @@
 """
 Router para endpoints de descarga de videos/audios.
 """
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Tuple
+from email.utils import formatdate
 import os
 import re
 import logging
@@ -694,16 +695,102 @@ async def delete_file(filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/view/{filename:path}")
-async def view_file(filename: str):
+def _parse_range_header(range_header: str, file_size: int) -> Optional[Tuple[int, int]]:
     """
-    Visualiza un archivo (para videos/audio).
+    Parsea el header HTTP Range según RFC 7233 / RFC 9110.
+    Retorna (start, end) inclusivo, o None si no hay Range, o raise HTTPException(416) si es inválido.
+    """
+    if not range_header or not range_header.startswith("bytes="):
+        return None
+    
+    range_val = range_header.replace("bytes=", "").strip()
+    if "," in range_val:
+        range_val = range_val.split(",")[0].strip()
+    
+    parts = range_val.split("-")
+    if len(parts) != 2:
+        return None
+    
+    start_str, end_str = parts[0].strip(), parts[1].strip()
+    
+    try:
+        if start_str and end_str:
+            start = int(start_str)
+            end = int(end_str)
+        elif start_str:
+            start = int(start_str)
+            end = file_size - 1
+        elif end_str:
+            suffix_len = int(end_str)
+            if suffix_len <= 0:
+                raise HTTPException(
+                    status_code=416,
+                    detail="Rango no satisfacible",
+                    headers={"Content-Range": f"bytes */{file_size}", "Accept-Ranges": "bytes"}
+                )
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+        else:
+            return None
+    except ValueError:
+        raise HTTPException(
+            status_code=416,
+            detail="Rango no satisfacible",
+            headers={"Content-Range": f"bytes */{file_size}", "Accept-Ranges": "bytes"}
+        )
+    
+    if start >= file_size or start < 0 or start > end:
+        raise HTTPException(
+            status_code=416,
+            detail="Rango no satisfacible",
+            headers={"Content-Range": f"bytes */{file_size}", "Accept-Ranges": "bytes"}
+        )
+    
+    if end >= file_size:
+        end = file_size - 1
+        
+    return start, end
+
+
+async def _file_chunk_generator(file_path: str, start: int, end: int, chunk_size: int = 512 * 1024):
+    """Generador asíncrono que lee un fragmento específico de un archivo por bloques."""
+    loop = asyncio.get_event_loop()
+    bytes_remaining = end - start + 1
+    
+    def _read_chunk(file_obj, size_to_read):
+        return file_obj.read(size_to_read)
+
+    try:
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            while bytes_remaining > 0:
+                to_read = min(chunk_size, bytes_remaining)
+                data = await loop.run_in_executor(None, _read_chunk, f, to_read)
+                if not data:
+                    break
+                bytes_remaining -= len(data)
+                yield data
+    except (asyncio.CancelledError, GeneratorExit):
+        logger.debug(f"Stream de archivo cancelado por cliente: {file_path}")
+        return
+    except Exception as e:
+        logger.warning(f"Error durante streaming de {file_path}: {e}")
+        return
+
+
+@router.get("/view/{filename:path}")
+@router.head("/view/{filename:path}")
+async def view_file(filename: str, request: Request):
+    """
+    Visualiza un archivo con soporte completo de HTTP Range (RFC 7233) para streaming y reproducción
+    con capacidad de adelantar/atrasar (seeking).
     
     Args:
-        filename: Nombre del archivo
+        filename: Nombre del archivo relativo a la carpeta de descargas
+        request: Objeto FastAPI Request para inspección de headers (Range, etc.)
         
     Returns:
-        Archivo para visualización en navegador
+        StreamingResponse (200 o 206) o Response (para HEAD) con Accept-Ranges: bytes
     """
     try:
         path = _safe_path(filename)
@@ -711,8 +798,16 @@ async def view_file(filename: str):
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Archivo no encontrado")
         
-        # Touch para actualizar timestamp
-        os.utime(path, None)
+        # Touch para actualizar timestamp y evitar expiración
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
+        
+        stat = os.stat(path)
+        file_size = stat.st_size
+        last_modified = formatdate(stat.st_mtime, usegmt=True)
+        etag = f'"{int(stat.st_mtime)}-{file_size}"'
         
         # Determinar media_type según extensión
         ext = os.path.splitext(filename)[1].lower()
@@ -720,12 +815,15 @@ async def view_file(filename: str):
             '.mp4': 'video/mp4',
             '.webm': 'video/webm',
             '.mkv': 'video/x-matroska',
+            '.avi': 'video/x-msvideo',
+            '.mov': 'video/quicktime',
             '.mp3': 'audio/mpeg',
             '.m4a': 'audio/mp4',
             '.wav': 'audio/wav',
             '.ogg': 'audio/ogg',
             '.opus': 'audio/ogg',
             '.flac': 'audio/flac',
+            '.aac': 'audio/aac',
             '.srt': 'text/plain; charset=utf-8',
             '.vtt': 'text/vtt; charset=utf-8',
             '.jpg': 'image/jpeg',
@@ -735,11 +833,61 @@ async def view_file(filename: str):
         }
         media_type = media_type_map.get(ext, 'application/octet-stream')
         
-        # NO incluir filename para que se abra inline en el navegador
-        return FileResponse(
-            path=path,
-            media_type=media_type
-        )
+        # Archivos vacíos
+        if file_size == 0:
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": "0",
+                "Content-Type": media_type,
+                "ETag": etag,
+                "Last-Modified": last_modified,
+            }
+            return Response(content=b"", status_code=status.HTTP_200_OK, headers=headers, media_type=media_type)
+
+        range_header = request.headers.get("range")
+        parsed_range = None
+        if range_header:
+            parsed_range = _parse_range_header(range_header, file_size)
+
+        if parsed_range is not None:
+            start, end = parsed_range
+            content_length = end - start + 1
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+                "Content-Type": media_type,
+                "ETag": etag,
+                "Last-Modified": last_modified,
+                "Cache-Control": "public, max-age=3600",
+            }
+            if request.method == "HEAD":
+                return Response(status_code=status.HTTP_206_PARTIAL_CONTENT, headers=headers, media_type=media_type)
+            
+            return StreamingResponse(
+                _file_chunk_generator(path, start, end),
+                status_code=status.HTTP_206_PARTIAL_CONTENT,
+                headers=headers,
+                media_type=media_type
+            )
+        else:
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+                "Content-Type": media_type,
+                "ETag": etag,
+                "Last-Modified": last_modified,
+                "Cache-Control": "public, max-age=3600",
+            }
+            if request.method == "HEAD":
+                return Response(status_code=status.HTTP_200_OK, headers=headers, media_type=media_type)
+            
+            return StreamingResponse(
+                _file_chunk_generator(path, 0, file_size - 1),
+                status_code=status.HTTP_200_OK,
+                headers=headers,
+                media_type=media_type
+            )
         
     except HTTPException:
         raise

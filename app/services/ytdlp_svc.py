@@ -326,7 +326,10 @@ def download_media(
             'format': fmt,
             'format_sort': format_sort,
             'merge_output_format': 'mp4',
-            'postprocessors': current_postprocessors
+            'postprocessors': current_postprocessors,
+            'postprocessor_args': {
+                'ffmpeg': ['-movflags', '+faststart']
+            }
         })
     
     # Ejecutar descarga

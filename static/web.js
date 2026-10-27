@@ -150,7 +150,13 @@
     }
 
     // --- Reproductor integrado ---
+    let activePlayerCleanup = null;
+
     function openPlayer(filename, title) {
+        if (activePlayerCleanup) {
+            activePlayerCleanup();
+        }
+
         const modal = document.getElementById('playerModal');
         const body = document.getElementById('playerBody');
         const titleEl = document.getElementById('playerTitle');
@@ -164,35 +170,154 @@
         const ext = filename.split('.').pop().toLowerCase();
         const isAudio = ['mp3', 'm4a', 'wav', 'ogg', 'opus', 'flac'].includes(ext);
 
+        const mimeMap = {
+            'mp4': 'video/mp4',
+            'webm': 'video/webm',
+            'mkv': 'video/x-matroska',
+            'mp3': 'audio/mpeg',
+            'm4a': 'audio/mp4',
+            'wav': 'audio/wav',
+            'ogg': 'audio/ogg',
+            'opus': 'audio/ogg',
+            'flac': 'audio/flac'
+        };
+        const mimeType = mimeMap[ext] || (isAudio ? 'audio/mpeg' : 'video/mp4');
+
         if (isAudio) {
             body.innerHTML = `
-                <div style="padding: 2rem; width: 100%; text-align: center;">
-                    <i class="fas fa-music" style="font-size: 3rem; color: var(--primary-from); margin-bottom: 1.5rem; display: block;"></i>
-                    <audio controls autoplay style="width: 100%; max-width: 500px;">
-                        <source src="${fileUrl}">
+                <div style="padding: 2.5rem 1.5rem 1.5rem; width: 100%; text-align: center;">
+                    <i class="fas fa-music" style="font-size: 3.5rem; color: var(--primary-from); margin-bottom: 1.5rem; display: block;"></i>
+                    <audio id="mediaElement" controls autoplay preload="metadata" style="width: 100%; max-width: 560px;">
+                        <source src="${fileUrl}" type="${mimeType}">
                         Tu navegador no soporta el elemento de audio.
                     </audio>
+                </div>
+                <div class="player-toolbar">
+                    <div class="player-toolbar-left">
+                        <button type="button" class="btn btn-ghost small" id="btnSeekBack10" title="Retroceder 10 segundos (←)"><i class="fas fa-rotate-left"></i> -10s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekBack5" title="Retroceder 5 segundos"><i class="fas fa-backward"></i> -5s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekFwd5" title="Adelantar 5 segundos"><i class="fas fa-forward"></i> +5s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekFwd10" title="Adelantar 10 segundos (→)"><i class="fas fa-rotate-right"></i> +10s</button>
+                    </div>
+                    <div class="player-toolbar-right">
+                        <span class="player-shortcuts-hint"><i class="fas fa-keyboard"></i> ← / → 5s</span>
+                        <select id="playerSpeed" class="player-speed-select" title="Velocidad de reproducción">
+                            <option value="0.5">0.5x</option>
+                            <option value="0.75">0.75x</option>
+                            <option value="1" selected>1.0x</option>
+                            <option value="1.25">1.25x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2">2.0x</option>
+                        </select>
+                    </div>
                 </div>
             `;
         } else {
             body.innerHTML = `
-                <video controls autoplay playsinline style="width: 100%; max-height: 70vh;">
-                    <source src="${fileUrl}">
+                <video id="mediaElement" controls autoplay playsinline preload="metadata" style="width: 100%; max-height: 70vh;">
+                    <source src="${fileUrl}" type="${mimeType}">
                     Tu navegador no soporta reproducción de video.
                 </video>
+                <div class="player-toolbar">
+                    <div class="player-toolbar-left">
+                        <button type="button" class="btn btn-ghost small" id="btnSeekBack10" title="Retroceder 10 segundos (←)"><i class="fas fa-rotate-left"></i> -10s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekBack5" title="Retroceder 5 segundos"><i class="fas fa-backward"></i> -5s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekFwd5" title="Adelantar 5 segundos"><i class="fas fa-forward"></i> +5s</button>
+                        <button type="button" class="btn btn-ghost small" id="btnSeekFwd10" title="Adelantar 10 segundos (→)"><i class="fas fa-rotate-right"></i> +10s</button>
+                    </div>
+                    <div class="player-toolbar-right">
+                        <span class="player-shortcuts-hint"><i class="fas fa-keyboard"></i> ← / → 5s · Espacio</span>
+                        <select id="playerSpeed" class="player-speed-select" title="Velocidad de reproducción">
+                            <option value="0.5">0.5x</option>
+                            <option value="0.75">0.75x</option>
+                            <option value="1" selected>1.0x</option>
+                            <option value="1.25">1.25x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2">2.0x</option>
+                        </select>
+                    </div>
+                </div>
             `;
         }
 
-        modal.classList.remove('hidden');
+        const mediaEl = document.getElementById('mediaElement');
 
-        function close(e) {
-            if (e.target.hasAttribute('data-close') || e.target === modal) {
-                modal.classList.add('hidden');
-                body.innerHTML = '';
-                modal.removeEventListener('click', close);
+        const seek = (seconds) => {
+            if (!mediaEl) return;
+            const target = mediaEl.currentTime + seconds;
+            const maxDuration = isFinite(mediaEl.duration) ? mediaEl.duration : Infinity;
+            mediaEl.currentTime = Math.max(0, Math.min(maxDuration, target));
+        };
+
+        const btnBack10 = document.getElementById('btnSeekBack10');
+        const btnBack5 = document.getElementById('btnSeekBack5');
+        const btnFwd5 = document.getElementById('btnSeekFwd5');
+        const btnFwd10 = document.getElementById('btnSeekFwd10');
+        const speedSelect = document.getElementById('playerSpeed');
+
+        if (btnBack10) btnBack10.addEventListener('click', () => seek(-10));
+        if (btnBack5) btnBack5.addEventListener('click', () => seek(-5));
+        if (btnFwd5) btnFwd5.addEventListener('click', () => seek(5));
+        if (btnFwd10) btnFwd10.addEventListener('click', () => seek(10));
+
+        if (speedSelect && mediaEl) {
+            speedSelect.addEventListener('change', (e) => {
+                mediaEl.playbackRate = parseFloat(e.target.value) || 1.0;
+            });
+        }
+
+        function handleKeydown(e) {
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+            if (!mediaEl) return;
+
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                seek(e.shiftKey ? -10 : -5);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                seek(e.shiftKey ? 10 : 5);
+            } else if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                if (mediaEl.paused) {
+                    mediaEl.play();
+                } else {
+                    mediaEl.pause();
+                }
+            } else if (e.key === 'm' || e.key === 'M') {
+                mediaEl.muted = !mediaEl.muted;
+            } else if (e.key === 'f' || e.key === 'F') {
+                if (!isAudio) {
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen().catch(() => {});
+                    } else if (mediaEl.requestFullscreen) {
+                        mediaEl.requestFullscreen().catch(() => {});
+                    }
+                }
             }
         }
+
+        document.addEventListener('keydown', handleKeydown);
+
+        function close(e) {
+            if (!e || e.target?.hasAttribute('data-close') || e.target === modal) {
+                cleanup();
+            }
+        }
+
+        function cleanup() {
+            modal.classList.add('hidden');
+            if (mediaEl) {
+                try { mediaEl.pause(); } catch (_) {}
+            }
+            body.innerHTML = '';
+            document.removeEventListener('keydown', handleKeydown);
+            modal.removeEventListener('click', close);
+            activePlayerCleanup = null;
+        }
+
+        activePlayerCleanup = cleanup;
         modal.addEventListener('click', close);
+        modal.classList.remove('hidden');
     }
 
     // --- Persistencia de Tareas ---
@@ -1201,8 +1326,12 @@
                 const playerModal = document.getElementById('playerModal');
                 const dialogModal = document.getElementById('dialogModal');
                 if (!playerModal.classList.contains('hidden')) {
-                    playerModal.classList.add('hidden');
-                    document.getElementById('playerBody').innerHTML = '';
+                    if (activePlayerCleanup) {
+                        activePlayerCleanup();
+                    } else {
+                        playerModal.classList.add('hidden');
+                        document.getElementById('playerBody').innerHTML = '';
+                    }
                 } else if (!dialogModal.classList.contains('hidden')) {
                     dialogModal.classList.add('hidden');
                 } else if (!document.getElementById('panelInfo').classList.contains('hidden')) {

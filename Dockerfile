@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 
 # Copiar script entrypoint
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Copiar código de la aplicación
 COPY app ./app

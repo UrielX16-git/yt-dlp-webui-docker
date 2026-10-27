@@ -354,7 +354,7 @@ def view_file(filename):
             os.utime(path, None) # Touch
     except:
         pass
-    return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=False)
+    return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=False, conditional=True)
 
 @app.route('/downloads/<path:filename>')
 def download_file(filename):
