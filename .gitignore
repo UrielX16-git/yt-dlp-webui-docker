@@ -26,6 +26,7 @@ wheels/
 
 # Docker
 *.log
+docker-compose.override.yml
 
 # Archivos descargados
 downloads/*
